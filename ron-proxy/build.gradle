@@ -1,0 +1,21 @@
+plugins {
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+repositories {
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    compileOnly 'com.velocitypowered:velocity-api:3.3.0-SNAPSHOT'
+    annotationProcessor 'com.velocitypowered:velocity-api:3.3.0-SNAPSHOT'
+    compileOnly 'com.google.code.gson:gson:2.10.1'
+    implementation project(':ron-common')
+}
+
+shadowJar {
+    archiveBaseName.set('ron-proxy')
+    archiveClassifier.set('')
+}
+
+build.dependsOn shadowJar

@@ -1,0 +1,9 @@
+# Show the welcome chat message when a player joins the lobby
+show-welcome-message: true
+
+# Public queue match flow timings
+queue:
+  # Seconds the queue stays OPEN after minPlayers is reached, so more players can join.
+  fill-seconds: 120
+  # Seconds for the combined map+mode vote after the room is locked.
+  vote-seconds: 60

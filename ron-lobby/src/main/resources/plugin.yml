@@ -1,0 +1,32 @@
+name: RonLobby
+version: 1.0.0
+main: com.ron.lobby.RonLobby
+api-version: '1.20'
+description: Lobby plugin for the Reign of Nether community server system
+author: Soly
+
+commands:
+  queue:
+    description: Join the matchmaking queue
+  leave:
+    description: Leave the matchmaking queue
+  spectate:
+    description: Watch a running match
+    usage: /spectate <instance>
+  leaderboard:
+    description: Show top 10 players
+  rank:
+    description: Show your stats
+  vote:
+    description: Vote for a map during countdown
+    usage: /vote <number>
+  matches:
+    description: View running matches and available servers
+  ronstatus:
+    description: Show server status (OP only)
+    permission: ron.status
+
+permissions:
+  ron.status:
+    description: View RoN server status
+    default: op

@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-3.0"
+
+[[mods]]
+modId="ron_instance"
+version="${file.jarVersion}"
+displayName="RoN Instance"
+description='''
+Game instance mod for the Reign of Nether community server system.
+Handles map swapping, victory detection, scoring, and player transfer.
+'''
+
+[[dependencies.ron_instance]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.ron_instance]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.ron_instance]]
+modId="reignofnether"
+mandatory=true
+versionRange="[1.0,)"
+ordering="AFTER"
+side="BOTH"

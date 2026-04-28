@@ -1,0 +1,523 @@
+package com.ron.lobby.queue;
+
+import com.ron.lobby.RonLobby;
+import com.ron.lobby.messaging.LobbyMessaging;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.scheduler.BukkitRunnable;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+
+public class MatchQueue implements Listener {
+
+    private static final int DEFAULT_FILL_SECONDS = 120;
+    private static final int DEFAULT_VOTE_SECONDS = 60;
+    private static final int PRIVATE_FILL_SECONDS = 60;
+
+    private final RonLobby plugin;
+    private final VoteSession voteSession;
+
+    // Phase machine — public queue is the primary driver, private lobbies share the lock.
+    private enum Phase { OPEN, FILLING, LOCKED_VOTING, WAITING_FOR_INSTANCE }
+    private Phase phase = Phase.OPEN;
+
+    // Public queue: open → fill → lock → vote → transfer
+    private final Set<UUID> publicQueue = new LinkedHashSet<>();
+    // Late joiners during LOCKED_VOTING / WAITING_FOR_INSTANCE — promoted into publicQueue once free.
+    private final Set<UUID> nextQueue = new LinkedHashSet<>();
+
+    private int fillTask = -1;
+    private int fillSecondsRemaining = 0;
+
+    private int fillSeconds = DEFAULT_FILL_SECONDS;
+    private int voteSeconds = DEFAULT_VOTE_SECONDS;
+
+    // Private lobbies: code -> lobby
+    private final Map<String, PrivateLobby> privateLobbies = new ConcurrentHashMap<>();
+    private final Map<UUID, String> playerLobby = new ConcurrentHashMap<>();
+
+    // Pending match state (shared across public/private — only one match at a time)
+    private String pendingInstance = null;
+    private Set<UUID> pendingPlayers = null;
+    private boolean pendingPrivateMatch = false;
+    private int transferTimeoutTask = -1;
+
+    public record ModeOption(String name, int minPlayers, int maxPlayers) {}
+    public record MapOption(String folder, String name, List<ModeOption> modes) {}
+    public record CombinedOption(String mapFolder, String mapName, String modeName) {}
+
+    // Server capabilities
+    private int minPlayers = 2;
+    private int availableInstances = 0;
+
+    public MatchQueue(RonLobby plugin) {
+        this.plugin = plugin;
+        this.voteSession = new VoteSession(plugin);
+    }
+
+    public void configureTimings(int fillSeconds, int voteSeconds) {
+        if (fillSeconds > 0) this.fillSeconds = fillSeconds;
+        if (voteSeconds > 0) this.voteSeconds = voteSeconds;
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        leaveQueue(uuid, event.getPlayer().getName());
+    }
+
+    // --- Public Queue ---
+
+    public void joinPublicQueue(UUID uuid, String name) {
+        if (availableInstances <= 0 && phase != Phase.WAITING_FOR_INSTANCE) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] No game servers available right now.");
+            return;
+        }
+
+        if (publicQueue.contains(uuid) || nextQueue.contains(uuid) || playerLobby.containsKey(uuid)) {
+            tellPlayer(uuid, ChatColor.YELLOW + "[RoN] You're already in a queue.");
+            return;
+        }
+
+        if (phase == Phase.LOCKED_VOTING || phase == Phase.WAITING_FOR_INSTANCE) {
+            nextQueue.add(uuid);
+            tellPlayer(uuid, ChatColor.YELLOW + "[RoN] Match in progress. Queued for the next match (" +
+                    nextQueue.size() + " waiting).");
+            return;
+        }
+
+        // OPEN or FILLING — queue is open, anyone can join.
+        publicQueue.add(uuid);
+        broadcastToAll(ChatColor.GOLD + "[RoN] " + name + " joined the queue! (" + publicQueue.size() + " in queue)");
+
+        if (phase == Phase.OPEN && publicQueue.size() >= minPlayers) {
+            enterFilling();
+        } else if (phase == Phase.FILLING) {
+            tellPlayer(uuid, ChatColor.YELLOW + "[RoN] Match locks in " + fillSecondsRemaining + "s.");
+        }
+    }
+
+    // --- Private Lobbies ---
+
+    public String createPrivateLobby(UUID host, String name) {
+        String code = generateCode();
+        PrivateLobby lobby = new PrivateLobby(code, host, PRIVATE_FILL_SECONDS);
+        lobby.players.add(host);
+        privateLobbies.put(code, lobby);
+        playerLobby.put(host, code);
+        broadcastToLobby(lobby, name + " created a private lobby. Code: " + code);
+        return code;
+    }
+
+    public void joinPrivateLobby(UUID uuid, String name, String code) {
+        PrivateLobby lobby = privateLobbies.get(code);
+        if (lobby == null) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] Invalid lobby code.");
+            return;
+        }
+        lobby.players.add(uuid);
+        playerLobby.put(uuid, code);
+        broadcastToLobby(lobby, name + " joined the lobby! (" + lobby.players.size() + " players)");
+
+        if (!lobby.countdownActive && lobby.players.size() >= minPlayers) {
+            startPrivateCountdown(lobby);
+        }
+    }
+
+    public void forceStart(UUID uuid) {
+        String code = playerLobby.get(uuid);
+        if (code == null) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] You're not in a private lobby.");
+            return;
+        }
+        PrivateLobby lobby = privateLobbies.get(code);
+        if (lobby == null || !lobby.host.equals(uuid)) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] Only the lobby host can force start.");
+            return;
+        }
+        if (lobby.players.size() < 2) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] Need at least 2 players to start.");
+            return;
+        }
+        if (lobby.countdownActive) {
+            cancelPrivateCountdown(lobby);
+        }
+        requestMatchForLobby(lobby);
+    }
+
+    // --- Shared ---
+
+    public void leaveQueue(UUID uuid, String name) {
+        if (nextQueue.remove(uuid)) {
+            tellPlayer(uuid, ChatColor.GOLD + "[RoN] Removed from the next-match queue.");
+            return;
+        }
+
+        if (publicQueue.remove(uuid)) {
+            broadcastToAll(ChatColor.GOLD + "[RoN] " + name + " left the queue. (" + publicQueue.size() + " in queue)");
+            if (pendingPlayers != null) pendingPlayers.remove(uuid);
+            voteSession.removeVoter(uuid);
+            checkCancelFillOrVote();
+            return;
+        }
+
+        String code = playerLobby.remove(uuid);
+        if (code != null) {
+            PrivateLobby lobby = privateLobbies.get(code);
+            if (lobby != null) {
+                lobby.players.remove(uuid);
+                broadcastToLobby(lobby, name + " left the lobby. (" + lobby.players.size() + " players)");
+
+                if (pendingPlayers != null && pendingPrivateMatch) pendingPlayers.remove(uuid);
+                voteSession.removeVoter(uuid);
+
+                if (lobby.players.isEmpty() || lobby.host.equals(uuid)) {
+                    disbandLobby(lobby);
+                } else {
+                    checkCancelPrivateCountdown(lobby);
+                    checkCancelFillOrVote();
+                }
+            }
+        }
+    }
+
+    public boolean isInAnyQueue(UUID uuid) {
+        return publicQueue.contains(uuid) || nextQueue.contains(uuid) || playerLobby.containsKey(uuid);
+    }
+
+    public void updateServerInfo(int minPlayers, int availableInstances) {
+        this.minPlayers = minPlayers;
+        this.availableInstances = availableInstances;
+    }
+
+    // --- Match Found Callbacks ---
+
+    public void onMatchFound(String instance, String map, String mode) {
+        if (phase == Phase.WAITING_FOR_INSTANCE) {
+            plugin.getLogger().warning("onMatchFound for " + instance + " ignored — already waiting on " + pendingInstance);
+            return;
+        }
+        if (transferTimeoutTask != -1) {
+            Bukkit.getScheduler().cancelTask(transferTimeoutTask);
+            transferTimeoutTask = -1;
+        }
+        pendingInstance = instance;
+        phase = Phase.WAITING_FOR_INSTANCE;
+
+        if (pendingPlayers != null) {
+            String info = "Map: " + map + (mode != null ? " (" + mode + ")" : "") + " on " + instance;
+            broadcastToPlayers(pendingPlayers, info);
+            broadcastToPlayers(pendingPlayers, "Preparing server... please wait.");
+        }
+        LobbyMessaging.sendConfirmMatch(instance);
+
+        // 2min timeout in case instance never becomes ready
+        transferTimeoutTask = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            transferTimeoutTask = -1;
+            if (phase == Phase.WAITING_FOR_INSTANCE) {
+                plugin.getLogger().warning("Transfer timeout for " + instance + " — re-queuing players");
+                if (pendingPlayers != null) {
+                    broadcastToPlayers(pendingPlayers, ChatColor.RED + "Server failed to respond. You have been re-queued.");
+                }
+                cancelPendingMatch();
+            }
+        }, 2400L).getTaskId();
+    }
+
+    public void onNoMatchFound() {
+        if (pendingPlayers != null) {
+            broadcastToPlayers(pendingPlayers, "No game servers available. Try again later.");
+        }
+        cancelPendingMatch();
+    }
+
+    public void onInstanceReady(String instanceName) {
+        if (phase != Phase.WAITING_FOR_INSTANCE || !instanceName.equals(pendingInstance)) return;
+
+        if (transferTimeoutTask != -1) {
+            Bukkit.getScheduler().cancelTask(transferTimeoutTask);
+            transferTimeoutTask = -1;
+        }
+
+        if (pendingPlayers != null) {
+            broadcastToPlayers(pendingPlayers, "Server ready! Transferring you now...");
+
+            List<String> uuids = pendingPlayers.stream().map(UUID::toString).toList();
+            LobbyMessaging.sendTransfer(uuids, pendingInstance, pendingPrivateMatch);
+            plugin.getLogger().info("Transferred " + uuids.size() + " players to " + pendingInstance +
+                    (pendingPrivateMatch ? " (private)" : ""));
+
+            for (UUID uuid : pendingPlayers) {
+                publicQueue.remove(uuid);
+                String code = playerLobby.remove(uuid);
+                if (code != null) {
+                    PrivateLobby lobby = privateLobbies.get(code);
+                    if (lobby != null) lobby.players.remove(uuid);
+                }
+            }
+            privateLobbies.values().removeIf(l -> l.players.isEmpty());
+        }
+
+        pendingPlayers = null;
+        pendingInstance = null;
+        pendingPrivateMatch = false;
+        voteSession.clear();
+
+        drainNextQueue();
+    }
+
+    // --- Combined map+mode voting ---
+
+    public void onMapOptions(List<MapOption> options) {
+        if (phase != Phase.LOCKED_VOTING || pendingPlayers == null) return;
+        Set<UUID> voters = pendingPlayers;
+        voteSession.start(voters, options, voteSeconds, this::proceedWithChoice);
+    }
+
+    public void castVote(UUID uuid, int choice) {
+        if (phase != Phase.LOCKED_VOTING || pendingPlayers == null) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] No active vote.");
+            return;
+        }
+        voteSession.cast(uuid, choice, pendingPlayers);
+    }
+
+    private void proceedWithChoice(CombinedOption choice) {
+        if (pendingPlayers == null) {
+            cancelPendingMatch();
+            return;
+        }
+        int size = pendingPlayers.size();
+        String mapFolder = choice.mapFolder() != null ? choice.mapFolder() : "random";
+        String mode = choice.modeName();
+        voteSession.clear();
+        LobbyMessaging.sendFindMatch(size, mapFolder, mode);
+    }
+
+    public int getMinPlayers() { return minPlayers; }
+    public int getAvailableInstances() { return availableInstances; }
+    public int getPublicQueueSize() { return publicQueue.size(); }
+
+    // --- Phase transitions ---
+
+    private void enterFilling() {
+        phase = Phase.FILLING;
+        fillSecondsRemaining = fillSeconds;
+
+        broadcastToPlayers(publicQueue, ChatColor.GOLD + "Enough players! Match locks in " + fillSeconds +
+                "s — invite friends with /queue.");
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (!publicQueue.contains(p.getUniqueId())) {
+                p.sendMessage(ChatColor.YELLOW + "[RoN] A match is forming with " + publicQueue.size() +
+                        " players! Type " + ChatColor.WHITE + "/queue" + ChatColor.YELLOW + " to join.");
+            }
+        }
+
+        fillTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                fillSecondsRemaining--;
+                if (fillSecondsRemaining > 0 && (fillSecondsRemaining <= 10 || fillSecondsRemaining % 30 == 0)) {
+                    broadcastToPlayers(publicQueue, "Locking in " + fillSecondsRemaining + "s... (" +
+                            publicQueue.size() + " players)");
+                }
+                if (fillSecondsRemaining <= 0) {
+                    cancel();
+                    fillTask = -1;
+                    enterLockedVoting();
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L).getTaskId();
+    }
+
+    private void enterLockedVoting() {
+        if (publicQueue.size() < minPlayers) {
+            broadcastToPlayers(publicQueue, "Not enough players — match cancelled.");
+            phase = Phase.OPEN;
+            return;
+        }
+
+        pendingPlayers = new LinkedHashSet<>(publicQueue);
+        pendingPrivateMatch = false;
+        phase = Phase.LOCKED_VOTING;
+
+        broadcastToPlayers(pendingPlayers, ChatColor.GOLD + "Room locked! Fetching map options...");
+        LobbyMessaging.sendGetMaps(pendingPlayers.size());
+    }
+
+    private void startPrivateCountdown(PrivateLobby lobby) {
+        lobby.countdownActive = true;
+        lobby.countdownSeconds = PRIVATE_FILL_SECONDS;
+
+        broadcastToLobby(lobby, "Enough players! Starting in " + PRIVATE_FILL_SECONDS + "s...");
+
+        lobby.countdownTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                lobby.countdownSeconds--;
+                if (lobby.countdownSeconds > 0 && (lobby.countdownSeconds <= 5 || lobby.countdownSeconds % 10 == 0)) {
+                    broadcastToLobby(lobby, "Starting in " + lobby.countdownSeconds + "s... (" +
+                            lobby.players.size() + " players)");
+                }
+                if (lobby.countdownSeconds <= 0) {
+                    cancel();
+                    lobby.countdownActive = false;
+                    lobby.countdownTask = -1;
+                    requestMatchForLobby(lobby);
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L).getTaskId();
+    }
+
+    private void requestMatchForLobby(PrivateLobby lobby) {
+        if (lobby.players.size() < 2) {
+            broadcastToLobby(lobby, "Not enough players — match cancelled.");
+            return;
+        }
+        if (phase != Phase.OPEN && phase != Phase.FILLING) {
+            broadcastToLobby(lobby, "Another match is starting — please wait.");
+            // Re-arm countdown so the host can try again shortly.
+            startPrivateCountdown(lobby);
+            return;
+        }
+
+        // Cancel any public fill — the private lobby is taking over the lock.
+        if (phase == Phase.FILLING) {
+            cancelFillTimer();
+            broadcastToPlayers(publicQueue, ChatColor.YELLOW + "Public match deferred — a private match is starting.");
+            phase = Phase.OPEN;
+        }
+
+        pendingPlayers = new LinkedHashSet<>(lobby.players);
+        pendingPrivateMatch = true;
+        phase = Phase.LOCKED_VOTING;
+
+        broadcastToPlayers(pendingPlayers, ChatColor.GOLD + "Lobby locked! Fetching map options...");
+        LobbyMessaging.sendGetMaps(pendingPlayers.size());
+    }
+
+    // --- Cancellation / cleanup ---
+
+    private void cancelPendingMatch() {
+        phase = Phase.OPEN;
+        pendingInstance = null;
+        pendingPlayers = null;
+        pendingPrivateMatch = false;
+        if (transferTimeoutTask != -1) {
+            Bukkit.getScheduler().cancelTask(transferTimeoutTask);
+            transferTimeoutTask = -1;
+        }
+        voteSession.clear();
+        drainNextQueue();
+    }
+
+    private void cancelFillTimer() {
+        if (fillTask != -1) {
+            Bukkit.getScheduler().cancelTask(fillTask);
+            fillTask = -1;
+        }
+    }
+
+    private void checkCancelFillOrVote() {
+        if (phase == Phase.FILLING && publicQueue.size() < minPlayers) {
+            cancelFillTimer();
+            phase = Phase.OPEN;
+            broadcastToPlayers(publicQueue, "Not enough players — fill cancelled.");
+        } else if (phase == Phase.LOCKED_VOTING && pendingPlayers != null && pendingPlayers.size() < minPlayers) {
+            broadcastToPlayers(pendingPlayers, ChatColor.RED + "Not enough players — match cancelled.");
+            voteSession.clear();
+            pendingPlayers = null;
+            pendingPrivateMatch = false;
+            phase = Phase.OPEN;
+            // Late joiners go back into the public queue and may trigger a new fill.
+            publicQueue.addAll(nextQueue);
+            nextQueue.clear();
+            if (publicQueue.size() >= minPlayers) {
+                enterFilling();
+            }
+        }
+    }
+
+    private void checkCancelPrivateCountdown(PrivateLobby lobby) {
+        if (lobby.countdownActive && lobby.players.size() < minPlayers) {
+            cancelPrivateCountdown(lobby);
+            broadcastToLobby(lobby, "Not enough players — countdown cancelled.");
+        }
+    }
+
+    private void cancelPrivateCountdown(PrivateLobby lobby) {
+        if (lobby.countdownTask != -1) {
+            Bukkit.getScheduler().cancelTask(lobby.countdownTask);
+            lobby.countdownTask = -1;
+        }
+        lobby.countdownActive = false;
+    }
+
+    private void disbandLobby(PrivateLobby lobby) {
+        broadcastToLobby(lobby, "Lobby disbanded.");
+        cancelPrivateCountdown(lobby);
+        for (UUID uuid : lobby.players) {
+            playerLobby.remove(uuid);
+        }
+        privateLobbies.remove(lobby.code);
+    }
+
+    private void drainNextQueue() {
+        if (nextQueue.isEmpty()) return;
+
+        Set<UUID> promoted = new LinkedHashSet<>(nextQueue);
+        nextQueue.clear();
+        publicQueue.addAll(promoted);
+
+        broadcastToPlayers(promoted, "You're in the queue! (" + publicQueue.size() + " players)");
+
+        if (phase == Phase.OPEN && publicQueue.size() >= minPlayers) {
+            enterFilling();
+        }
+    }
+
+    // --- Helpers ---
+
+    private String generateCode() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        String code;
+        do {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 5; i++) {
+                sb.append(chars.charAt(ThreadLocalRandom.current().nextInt(chars.length())));
+            }
+            code = sb.toString();
+        } while (privateLobbies.containsKey(code));
+        return code;
+    }
+
+    private static void tellPlayer(UUID uuid, String message) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null) player.sendMessage(message);
+    }
+
+    private static void broadcastToPlayers(Set<UUID> players, String message) {
+        for (UUID uuid : players) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                player.sendMessage(ChatColor.GREEN + "[RoN] " + message);
+            }
+        }
+    }
+
+    private static void broadcastToLobby(PrivateLobby lobby, String message) {
+        broadcastToPlayers(lobby.players, "[Private] " + message);
+    }
+
+    private static void broadcastToAll(String message) {
+        for (Player player : new ArrayList<>(Bukkit.getOnlinePlayers())) {
+            player.sendMessage(message);
+        }
+    }
+}

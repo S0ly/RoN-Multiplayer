@@ -1,0 +1,6 @@
+rootProject.name = 'ron-server'
+
+include 'ron-common'
+include 'ron-proxy'
+include 'ron-lobby'
+// ron-instance is a standalone Forge project — build it separately
