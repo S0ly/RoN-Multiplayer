@@ -267,6 +267,7 @@ public class MatchQueue implements Listener {
         pendingPlayers = null;
         pendingInstance = null;
         pendingPrivateMatch = false;
+        phase = Phase.OPEN;
         voteSession.clear();
 
         drainNextQueue();
