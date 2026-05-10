@@ -17,15 +17,16 @@ public class VoteCommand implements CommandExecutor {
         }
 
         if (args.length < 1) {
-            player.sendMessage(ChatColor.RED + "[RoN] Usage: /vote <number>");
+            player.sendMessage(ChatColor.RED + "[RoN] Usage: /vote <number> [mode]");
             return true;
         }
 
         try {
             int choice = Integer.parseInt(args[0]);
-            RonLobby.matchQueue.castVote(player.getUniqueId(), choice);
+            String mode = args.length >= 2 ? args[1] : null;
+            RonLobby.matchQueue.castVote(player.getUniqueId(), choice, mode);
         } catch (NumberFormatException e) {
-            player.sendMessage(ChatColor.RED + "[RoN] Invalid number. Usage: /vote <number>");
+            player.sendMessage(ChatColor.RED + "[RoN] Invalid number. Usage: /vote <number> [mode]");
         }
 
         return true;

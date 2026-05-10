@@ -281,12 +281,12 @@ public class MatchQueue implements Listener {
         voteSession.start(voters, options, voteSeconds, this::proceedWithChoice);
     }
 
-    public void castVote(UUID uuid, int choice) {
+    public void castVote(UUID uuid, int choice, String mode) {
         if (phase != Phase.LOCKED_VOTING || pendingPlayers == null) {
             tellPlayer(uuid, ChatColor.RED + "[RoN] No active vote.");
             return;
         }
-        voteSession.cast(uuid, choice, pendingPlayers);
+        voteSession.cast(uuid, choice, mode, pendingPlayers);
     }
 
     private void proceedWithChoice(CombinedOption choice) {

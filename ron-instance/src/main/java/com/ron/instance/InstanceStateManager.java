@@ -105,6 +105,27 @@ public class InstanceStateManager {
         RonInstance.LOGGER.info("Scanned {} maps", availableMaps.size());
     }
 
+    /**
+     * Parses coop modes like "coop_2-4" or "coop_4-4" → [min, max].
+     * Returns null if not a coop_*-* mode. "coop" alone returns null (caller falls through).
+     */
+    private static int[] parseCoopRange(String modeName) {
+        if (modeName == null) return null;
+        String lower = modeName.toLowerCase();
+        if (!lower.startsWith("coop_")) return null;
+        String suffix = lower.substring(5);
+        int dash = suffix.indexOf('-');
+        if (dash <= 0 || dash == suffix.length() - 1) return null;
+        try {
+            int min = Integer.parseInt(suffix.substring(0, dash));
+            int max = Integer.parseInt(suffix.substring(dash + 1));
+            if (min < 1 || max < min) return null;
+            return new int[]{min, max};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private static MapInfo parseRtsMap(String folder, String json) {
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
@@ -138,10 +159,22 @@ public class InstanceStateManager {
                     totalPlayers += team.getAsJsonArray().size();
                 }
 
+                if ("coop".equalsIgnoreCase(modeName)) {
+                    RonInstance.LOGGER.warn("rtsmap.json in {}: bare 'coop' mode is invalid, use 'coop_<min>-<max>' (e.g. coop_2-4) — skipping", folder);
+                    continue;
+                }
+
                 int minPlayers, maxPlayers;
-                if ("ffa".equalsIgnoreCase(modeName)) {
+                int[] coopRange = parseCoopRange(modeName);
+                if (coopRange != null) {
+                    minPlayers = coopRange[0];
+                    maxPlayers = coopRange[1];
+                } else if ("ffa".equalsIgnoreCase(modeName)) {
                     minPlayers = 2;
                     maxPlayers = totalPlayers;
+                } else if (modeName.toLowerCase().startsWith("coop_")) {
+                    RonInstance.LOGGER.warn("rtsmap.json in {}: malformed coop mode '{}', expected 'coop_<min>-<max>' — skipping", folder, modeName);
+                    continue;
                 } else {
                     minPlayers = totalPlayers;
                     maxPlayers = totalPlayers;

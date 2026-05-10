@@ -18,8 +18,8 @@ commands:
   rank:
     description: Show your stats
   vote:
-    description: Vote for a map during countdown
-    usage: /vote <number>
+    description: Vote for a map (and mode, if the map has multiple) during countdown
+    usage: /vote <number> [mode]
   matches:
     description: View running matches and available servers
   ronstatus:

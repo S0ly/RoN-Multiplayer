@@ -253,6 +253,9 @@ public class MatchLifecycle {
                 for (RTSPlayer p : rtsPlayers) {
                     initialParticipants.add(p.name);
                 }
+                if (isCoop()) {
+                    runCommand("gamerule coopMode true");
+                }
                 InstanceStateManager.setState(InstanceState.RUNNING);
                 RonInstance.LOGGER.info("MatchLifecycle: RUNNING with {} players: {}", rtsPlayers.size(), initialParticipants);
                 return;
@@ -305,7 +308,7 @@ public class MatchLifecycle {
 
             if (initialParticipants.size() < 2) return;
 
-            if (playerCount == 1) {
+            if (playerCount == 1 && !isCoop()) {
                 victoryHandled = true;
                 Set<String> winners = new HashSet<>();
                 winners.add(rtsPlayers.get(0).name);
@@ -313,7 +316,7 @@ public class MatchLifecycle {
                 losers.removeAll(winners);
                 RonInstance.LOGGER.info("MatchLifecycle: Victory! Winners: {}, Losers: {}", winners, losers);
                 MatchEndHandler.onVictory(new ArrayList<>(winners), new ArrayList<>(losers));
-            } else {
+            } else if (playerCount > 1) {
                 String reference = rtsPlayers.get(0).name;
                 Set<String> allianceGroup = AlliancesServerEvents.getAllConnectedAllies(reference);
                 Set<String> remaining = new HashSet<>();
@@ -420,7 +423,6 @@ public class MatchLifecycle {
         String currentMap = InstanceStateManager.getCurrentMap();
         for (InstanceStateManager.MapInfo map : InstanceStateManager.getAvailableMaps()) {
             if (map.folder().equals(currentMap) || map.name().equals(currentMap)) {
-                broadcast(ChatFormatting.GOLD + "Map: " + ChatFormatting.WHITE + map.name());
                 if (!map.author().isEmpty()) {
                     String authors = String.join(", ", map.author());
                     broadcast(ChatFormatting.GOLD + "By: " + ChatFormatting.WHITE + authors);
@@ -438,6 +440,13 @@ public class MatchLifecycle {
         if (serverInstance == null) return;
         serverInstance.getPlayerList().broadcastSystemMessage(
                 Component.literal(message), false);
+    }
+
+    private static void runCommand(String command) {
+        if (serverInstance == null) return;
+        serverInstance.getCommands().performPrefixedCommand(
+                serverInstance.createCommandSourceStack(), command);
+        RonInstance.LOGGER.info("MatchLifecycle: ran /{}", command);
     }
 
     public static boolean hasLeft(UUID uuid) {
@@ -475,8 +484,26 @@ public class MatchLifecycle {
         return false;
     }
 
+    public static boolean isCoop() {
+        String currentMode = InstanceStateManager.getCurrentMode();
+        if (isCoopName(currentMode)) return true;
+
+        String currentMap = InstanceStateManager.getCurrentMap();
+        for (InstanceStateManager.MapInfo map : InstanceStateManager.getAvailableMaps()) {
+            if (map.folder().equals(currentMap) || map.name().equals(currentMap)) {
+                String mode = currentMode != null ? currentMode : map.defaultMode();
+                return isCoopName(mode);
+            }
+        }
+        return false;
+    }
+
+    private static boolean isCoopName(String mode) {
+        return mode != null && mode.toLowerCase().startsWith("coop_");
+    }
+
     public static boolean isRanked() {
-        return !privateMatch && !isFFA();
+        return !privateMatch && !isFFA() && !isCoop();
     }
 
     // ========================================================================
