@@ -35,6 +35,32 @@ public class Database {
                     last_played INTEGER DEFAULT 0
                 )
             """);
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS matches (
+                    id TEXT PRIMARY KEY,
+                    instance TEXT NOT NULL,
+                    map_folder TEXT,
+                    mode TEXT,
+                    ranked INTEGER DEFAULT 0,
+                    is_private INTEGER DEFAULT 0,
+                    state TEXT NOT NULL,
+                    started_at INTEGER DEFAULT 0,
+                    finished_at INTEGER DEFAULT 0
+                )
+            """);
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS match_players (
+                    match_id TEXT NOT NULL,
+                    uuid TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    was_winner INTEGER DEFAULT 0,
+                    point_delta INTEGER DEFAULT 0,
+                    PRIMARY KEY (match_id, uuid),
+                    FOREIGN KEY (match_id) REFERENCES matches(id)
+                )
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_matches_state ON matches(state)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_matches_started_at ON matches(started_at)");
         }
     }
 }

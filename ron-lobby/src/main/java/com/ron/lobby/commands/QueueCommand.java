@@ -36,6 +36,7 @@ public class QueueCommand implements CommandExecutor {
                     return true;
                 }
                 String code = RonLobby.matchQueue.createPrivateLobby(player.getUniqueId(), player.getName());
+                if (code == null) return true;
                 player.sendMessage(ChatColor.GREEN + "[RoN] Private lobby created! Code: " + ChatColor.WHITE + ChatColor.BOLD + code);
                 player.sendMessage(ChatColor.GRAY + "Share this code with friends: /queue join " + code);
             }

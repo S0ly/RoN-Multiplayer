@@ -78,6 +78,7 @@ public class RonCommands {
 
             int onlinePlayers = context.getSource().getServer().getPlayerCount();
             status.addProperty("onlinePlayers", onlinePlayers);
+            status.addProperty("spectatorCount", Math.max(0, onlinePlayers - PlayerTracker.getParticipantCount()));
 
             status.addProperty("ranked", MatchLifecycle.isRanked());
             status.addProperty("privateMatch", MatchLifecycle.isPrivateMatch());
@@ -207,6 +208,7 @@ public class RonCommands {
                     }
 
                     if (!valid) {
+                        RonInstance.LOGGER.warn("ron-setmode rejected: mode '{}' not valid for map '{}'", mode, currentMap);
                         context.getSource().sendFailure(
                             Component.literal("Invalid mode '" + mode + "' for map: " + currentMap));
                         return 0;
@@ -234,22 +236,43 @@ public class RonCommands {
             )
         );
 
+        // /ron-setranked <true|false> — proxy-decided ranked flag (overrides local heuristic)
+        dispatcher.register(Commands.literal("ron-setranked")
+            .then(Commands.argument("value", StringArgumentType.word())
+                .executes(context -> {
+                    String value = StringArgumentType.getString(context, "value");
+                    boolean ranked = "true".equalsIgnoreCase(value) || "1".equals(value);
+                    MatchLifecycle.setRankedOverride(ranked);
+                    context.getSource().sendSuccess(
+                        () -> Component.literal("Ranked: " + ranked), true);
+                    return 1;
+                })
+            )
+        );
+
         // /ron-reset — reset instance to IDLE state (called by proxy after match)
+        // Returns JSON: {"ok": true, "state": "IDLE"} on success, {"ok": false, "reason": "..."} on failure.
         dispatcher.register(Commands.literal("ron-reset").executes(context -> {
             if (InstanceStateManager.getState() == InstanceState.RUNNING) {
-                context.getSource().sendFailure(Component.literal("Cannot reset during active match"));
+                JsonObject failure = new JsonObject();
+                failure.addProperty("ok", false);
+                failure.addProperty("reason", "Cannot reset during active match");
+                failure.addProperty("state", InstanceStateManager.getState().name());
+                context.getSource().sendSuccess(() -> Component.literal(gson.toJson(failure)), false);
                 return 0;
             }
 
             RonInstance.LOGGER.info("Resetting instance to IDLE state");
-            PlayerServerEvents.resetRTS(true);
             InstanceStateManager.setState(InstanceState.IDLE);
             InstanceStateManager.setCurrentMap("none");
             InstanceStateManager.setCurrentMode(null);
             MatchLifecycle.reset();
 
-            context.getSource().sendSuccess(
-                () -> Component.literal("Instance reset to IDLE"), true);
+            JsonObject ok = new JsonObject();
+            ok.addProperty("ok", true);
+            ok.addProperty("state", InstanceStateManager.getState().name());
+            ok.addProperty("map", InstanceStateManager.getCurrentMap());
+            context.getSource().sendSuccess(() -> Component.literal(gson.toJson(ok)), true);
             return 1;
         }));
 

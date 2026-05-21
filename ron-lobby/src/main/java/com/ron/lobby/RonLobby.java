@@ -1,5 +1,6 @@
 package com.ron.lobby;
 
+import com.ron.common.messaging.MessageProtocol.Channels;
 import com.ron.lobby.commands.*;
 import com.ron.lobby.messaging.LobbyMessaging;
 import com.ron.lobby.queue.MatchQueue;
@@ -24,10 +25,10 @@ public class RonLobby extends JavaPlugin {
         );
 
         // Register plugin messaging channels
-        getServer().getMessenger().registerOutgoingPluginChannel(this, "ron:transfer");
-        getServer().getMessenger().registerOutgoingPluginChannel(this, "ron:match");
+        getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.TRANSFER);
+        getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.MATCH);
         LobbyMessaging listener = new LobbyMessaging();
-        getServer().getMessenger().registerIncomingPluginChannel(this, "ron:match", listener);
+        getServer().getMessenger().registerIncomingPluginChannel(this, Channels.MATCH, listener);
 
         // Register events
         getServer().getPluginManager().registerEvents(new VoidWorldSetup(), this);

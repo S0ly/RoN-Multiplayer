@@ -44,7 +44,7 @@ class VoteSession {
 
         if (mapOptions.isEmpty()) {
             broadcast(voters, "No maps available — picking random.");
-            onWinner.accept(new CombinedOption(null, "Random", null));
+            onWinner.accept(new CombinedOption(null, "Random", null, 0));
             return;
         }
 
@@ -52,8 +52,10 @@ class VoteSession {
             MapOption only = mapOptions.get(0);
             List<ModeOption> modes = only.modes() != null ? only.modes() : List.of();
             if (modes.size() <= 1) {
-                String mode = modes.isEmpty() ? null : modes.get(0).name();
-                CombinedOption chosen = new CombinedOption(only.folder(), only.name(), mode);
+                ModeOption picked = modes.isEmpty() ? null : modes.get(0);
+                String mode = picked != null ? picked.name() : null;
+                int min = picked != null ? picked.minPlayers() : 0;
+                CombinedOption chosen = new CombinedOption(only.folder(), only.name(), mode, min);
                 broadcast(voters, ChatColor.GREEN + "Selected: " + describe(chosen));
                 onWinner.accept(chosen);
                 return;
@@ -67,7 +69,7 @@ class VoteSession {
         broadcast(voters, ChatColor.YELLOW + "Vote for a map! Type "
                 + ChatColor.WHITE + "/vote <number> [mode]"
                 + ChatColor.YELLOW + "  (" + voteSeconds + "s)");
-        broadcast(voters, ChatColor.GRAY + "Example: /vote 1 ffa  — pick map #1 with mode ffa");
+        broadcast(voters, ChatColor.GRAY + "Example: /vote 1 ffa_2-4  — pick map #1 with mode ffa_2-4");
         for (int i = 0; i < mapOptions.size(); i++) {
             broadcast(voters, ChatColor.WHITE + "  " + (i + 1) + ". " + describeMap(mapOptions.get(i)));
         }
@@ -106,33 +108,34 @@ class VoteSession {
 
         CombinedOption resolved;
         if (choice == randomIdx) {
-            resolved = new CombinedOption(null, "Random", null);
+            resolved = new CombinedOption(null, "Random", null, 0);
         } else {
             MapOption map = mapOptions.get(choice - 1);
             List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
-            String chosenMode;
+            ModeOption matched;
             if (modes.isEmpty()) {
-                chosenMode = null;
+                matched = null;
             } else if (mode == null || mode.isBlank()) {
                 if (modes.size() == 1) {
-                    chosenMode = modes.get(0).name();
+                    matched = modes.get(0);
                 } else {
                     tellPlayer(uuid, ChatColor.RED + "[RoN] " + map.name()
                             + " has multiple modes — specify one: " + modeList(modes));
                     return;
                 }
             } else {
-                chosenMode = modes.stream()
-                        .map(ModeOption::name)
-                        .filter(n -> n.equalsIgnoreCase(mode))
+                matched = modes.stream()
+                        .filter(m -> m.name().equalsIgnoreCase(mode))
                         .findFirst().orElse(null);
-                if (chosenMode == null) {
+                if (matched == null) {
                     tellPlayer(uuid, ChatColor.RED + "[RoN] Mode '" + mode + "' not available for "
                             + map.name() + ". Available: " + modeList(modes));
                     return;
                 }
             }
-            resolved = new CombinedOption(map.folder(), map.name(), chosenMode);
+            String chosenMode = matched != null ? matched.name() : null;
+            int min = matched != null ? matched.minPlayers() : 0;
+            resolved = new CombinedOption(map.folder(), map.name(), chosenMode, min);
         }
 
         votes.put(uuid, resolved);
@@ -170,9 +173,11 @@ class VoteSession {
         if (votes.isEmpty()) {
             MapOption map = mapOptions.get(ThreadLocalRandom.current().nextInt(mapOptions.size()));
             List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
-            String mode = modes.isEmpty() ? null
-                    : modes.get(ThreadLocalRandom.current().nextInt(modes.size())).name();
-            winner = new CombinedOption(map.folder(), map.name(), mode);
+            ModeOption picked = modes.isEmpty() ? null
+                    : modes.get(ThreadLocalRandom.current().nextInt(modes.size()));
+            String mode = picked != null ? picked.name() : null;
+            int min = picked != null ? picked.minPlayers() : 0;
+            winner = new CombinedOption(map.folder(), map.name(), mode, min);
         } else {
             Map<CombinedOption, Integer> counts = new HashMap<>();
             for (CombinedOption v : votes.values()) counts.merge(v, 1, Integer::sum);

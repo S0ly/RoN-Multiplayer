@@ -12,15 +12,19 @@ import java.util.stream.Stream;
 public class MapSwapper {
 
     private static final String FLAG_FILE = "pending-map.txt";
-    private static boolean swappedMap = false;
+    private static volatile String swappedMapFolder = null;
 
     public static boolean didSwapMap() {
-        return swappedMap;
+        return swappedMapFolder != null;
+    }
+
+    public static String getSwappedMapFolder() {
+        return swappedMapFolder;
     }
 
     @SubscribeEvent
     public static void onServerAboutToStart(ServerAboutToStartEvent event) {
-        swappedMap = false;
+        swappedMapFolder = null;
         Path serverRoot = Paths.get(".").toAbsolutePath().normalize();
         Path flagFile = serverRoot.resolve(FLAG_FILE);
 
@@ -73,7 +77,7 @@ public class MapSwapper {
 
             // Delete flag file
             Files.deleteIfExists(flagFile);
-            swappedMap = true;
+            swappedMapFolder = mapName;
             RonInstance.LOGGER.info("Map swap complete — {} is ready", mapName);
 
         } catch (IOException e) {

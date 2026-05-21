@@ -19,6 +19,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Unified match lifecycle.
@@ -39,6 +40,7 @@ public class MatchLifecycle {
     private static final int READY_TIMEOUT_SECONDS = 300;
     private static final int STARTING_TIMEOUT_SECONDS = 15;
     private static final int EMPTY_MATCH_ABANDON_SECONDS = 60;
+    private static final int WELCOME_DELAY_SECONDS = 5;
 
     enum Phase { IDLE, READYING, STARTING, RUNNING }
 
@@ -51,6 +53,7 @@ public class MatchLifecycle {
 
     private static volatile MinecraftServer serverInstance;
     private static volatile boolean victoryHandled = false;
+    private static final AtomicBoolean welcomeShown = new AtomicBoolean(false);
     private static final Set<String> initialParticipants = ConcurrentHashMap.newKeySet();
 
     private static volatile boolean privateMatch = false;
@@ -68,18 +71,20 @@ public class MatchLifecycle {
         reset();
 
         InstanceStateManager.scanMaps();
-        String levelName = event.getServer().getWorldData().getLevelName();
-        InstanceStateManager.setCurrentMap(levelName);
+        String mapFolder = MapSwapper.didSwapMap()
+                ? MapSwapper.getSwappedMapFolder()
+                : "none";
+        InstanceStateManager.setCurrentMap(mapFolder);
 
         if (MapSwapper.didSwapMap()) {
             RonInstance.LOGGER.info("Map swapped, waiting 10s before setting READY...");
             gracePeriods.scheduleAfter(10, () -> {
                 InstanceStateManager.setState(InstanceState.READY);
-                RonInstance.LOGGER.info("Instance READY with map: {}", levelName);
+                RonInstance.LOGGER.info("Instance READY with map: {}", mapFolder);
             });
         } else {
             InstanceStateManager.setState(InstanceState.IDLE);
-            RonInstance.LOGGER.info("Instance IDLE — no map was swapped, map: {}", levelName);
+            RonInstance.LOGGER.info("Instance IDLE — no map was swapped");
         }
     }
 
@@ -109,12 +114,14 @@ public class MatchLifecycle {
             expectedPlayers = getExpectedPlayerCount();
             phaseTicks = 0;
             phase = Phase.READYING;
+            welcomeShown.set(false);
             RonInstance.LOGGER.info("MatchLifecycle: READYING phase ({} slots for mode)", expectedPlayers);
-            broadcastMapCredits();
-            broadcast(ChatFormatting.GREEN + "Pick a start position + faction to ready up!");
-            broadcast(ChatFormatting.YELLOW + "You have " + READYING_SECONDS + "s. Slot = team in this mode.");
+            gracePeriods.scheduleAfter(WELCOME_DELAY_SECONDS, MatchLifecycle::showWelcomeIfNeeded);
         } else if (phase == Phase.READYING) {
             broadcast(ChatFormatting.GRAY + name + " joined.");
+            if (serverInstance.getPlayerList().getPlayerCount() >= expectedPlayers) {
+                showWelcomeIfNeeded();
+            }
         }
     }
 
@@ -235,7 +242,11 @@ public class MatchLifecycle {
     private static void beginStarting() {
         phase = Phase.STARTING;
         phaseTicks = 0;
-        RonInstance.LOGGER.info("MatchLifecycle: STARTING — triggering game countdown");
+        RonInstance.LOGGER.info("MatchLifecycle: STARTING — mode={}, map={}, isCoop={}, isFFA={}, isRanked={}",
+                InstanceStateManager.getCurrentMode(), InstanceStateManager.getCurrentMap(),
+                isCoop(), isFFA(), isRanked());
+        runCommand("gamerule coopMode " + isCoop());
+        runCommand("gamerule lockAlliances " + !isFFA());
         StartPosServerEvents.startGameCountdown();
     }
 
@@ -252,9 +263,6 @@ public class MatchLifecycle {
                 initialParticipants.clear();
                 for (RTSPlayer p : rtsPlayers) {
                     initialParticipants.add(p.name);
-                }
-                if (isCoop()) {
-                    runCommand("gamerule coopMode true");
                 }
                 InstanceStateManager.setState(InstanceState.RUNNING);
                 RonInstance.LOGGER.info("MatchLifecycle: RUNNING with {} players: {}", rtsPlayers.size(), initialParticipants);
@@ -316,14 +324,19 @@ public class MatchLifecycle {
                 losers.removeAll(winners);
                 RonInstance.LOGGER.info("MatchLifecycle: Victory! Winners: {}, Losers: {}", winners, losers);
                 MatchEndHandler.onVictory(new ArrayList<>(winners), new ArrayList<>(losers));
-            } else if (playerCount > 1) {
+            } else if (playerCount > 1 && !isCoop()) {
                 String reference = rtsPlayers.get(0).name;
                 Set<String> allianceGroup = AlliancesServerEvents.getAllConnectedAllies(reference);
                 Set<String> remaining = new HashSet<>();
                 for (RTSPlayer p : rtsPlayers) {
                     remaining.add(p.name);
                 }
-                if (allianceGroup != null && remaining.equals(allianceGroup)) {
+                // Only declare draw if an enemy team was eliminated. If the remaining
+                // alliance group is the same size as initial participants, everyone
+                // started on the same team (coop/single-team) and no enemy ever existed.
+                if (allianceGroup != null
+                        && remaining.equals(allianceGroup)
+                        && allianceGroup.size() < initialParticipants.size()) {
                     victoryHandled = true;
                     RonInstance.LOGGER.info("MatchLifecycle: All remaining players allied — draw: {}", remaining);
                     MatchEndHandler.onDraw(new ArrayList<>(initialParticipants));
@@ -419,6 +432,17 @@ public class MatchLifecycle {
         return 2;
     }
 
+    private static void showWelcomeIfNeeded() {
+        if (!welcomeShown.compareAndSet(false, true)) return;
+        if (serverInstance == null) return;
+        serverInstance.execute(() -> {
+            if (phase != Phase.READYING) return;
+            broadcastMapCredits();
+            broadcast(ChatFormatting.GREEN + "Pick a start position + faction to ready up!");
+            broadcast(ChatFormatting.YELLOW + "You have " + READYING_SECONDS + "s. Slot = team in this mode.");
+        });
+    }
+
     private static void broadcastMapCredits() {
         String currentMap = InstanceStateManager.getCurrentMap();
         for (InstanceStateManager.MapInfo map : InstanceStateManager.getAvailableMaps()) {
@@ -467,42 +491,38 @@ public class MatchLifecycle {
     }
 
     public static boolean isFFA() {
-        String currentMode = InstanceStateManager.getCurrentMode();
-        if (currentMode != null && "ffa".equalsIgnoreCase(currentMode)) return true;
-
-        String currentMap = InstanceStateManager.getCurrentMap();
-        for (InstanceStateManager.MapInfo map : InstanceStateManager.getAvailableMaps()) {
-            if (map.folder().equals(currentMap) || map.name().equals(currentMap)) {
-                String mode = currentMode != null ? currentMode : map.defaultMode();
-                for (InstanceStateManager.ModeInfo m : map.modes()) {
-                    if (m.name().equals(mode)) {
-                        return m.teamCount() == m.maxPlayers();
-                    }
-                }
-            }
-        }
-        return false;
+        return effectiveMode().startsWith("ffa_");
     }
 
     public static boolean isCoop() {
+        return effectiveMode().startsWith("coop_");
+    }
+
+    private static String effectiveMode() {
         String currentMode = InstanceStateManager.getCurrentMode();
-        if (isCoopName(currentMode)) return true;
+        if (currentMode != null) return currentMode.toLowerCase();
 
         String currentMap = InstanceStateManager.getCurrentMap();
         for (InstanceStateManager.MapInfo map : InstanceStateManager.getAvailableMaps()) {
             if (map.folder().equals(currentMap) || map.name().equals(currentMap)) {
-                String mode = currentMode != null ? currentMode : map.defaultMode();
-                return isCoopName(mode);
+                return map.defaultMode().toLowerCase();
             }
         }
-        return false;
+        return "";
     }
 
-    private static boolean isCoopName(String mode) {
-        return mode != null && mode.toLowerCase().startsWith("coop_");
+    // Ranked is decided by the proxy (it knows the queue type + mode policy) and
+    // pushed via /ron-setranked. The local default mirrors the old logic so that
+    // a proxy that doesn't send the override still gets sensible behavior.
+    private static Boolean rankedOverride = null;
+
+    public static void setRankedOverride(Boolean value) {
+        rankedOverride = value;
+        RonInstance.LOGGER.info("Ranked override set to: {}", value);
     }
 
     public static boolean isRanked() {
+        if (rankedOverride != null) return rankedOverride;
         return !privateMatch && !isFFA() && !isCoop();
     }
 
@@ -519,10 +539,12 @@ public class MatchLifecycle {
         expectedPlayers = 0;
         victoryHandled = false;
         privateMatch = false;
+        welcomeShown.set(false);
         initialParticipants.clear();
 
         gracePeriods.reset();
         selections.clear();
+        rankedOverride = null;
 
         MatchResult.reset();
         PlayerTracker.reset();

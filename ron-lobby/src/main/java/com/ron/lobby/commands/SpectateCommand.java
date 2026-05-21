@@ -2,6 +2,7 @@ package com.ron.lobby.commands;
 
 import com.ron.lobby.messaging.LobbyMessaging;
 import com.ron.lobby.ui.LobbyUI;
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -27,8 +28,15 @@ public class SpectateCommand implements CommandExecutor {
         }
 
         String instance = args[0];
+        int[] load = LobbyMessaging.getSpectatorLoad(instance);
+        if (load != null && load[0] >= load[1]) {
+            player.sendMessage(ChatColor.RED + "[RoN] " + instance
+                    + " already has " + load[1] + " spectators — try another instance.");
+            return true;
+        }
+
         player.sendMessage("Joining " + instance + " as spectator...");
-        LobbyMessaging.sendTransfer(List.of(player.getUniqueId().toString()), instance);
+        LobbyMessaging.sendSpectatorTransfer(List.of(player.getUniqueId().toString()), instance);
         return true;
     }
 }

@@ -4,7 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.inject.Inject;
 import com.ron.common.db.Database;
+import com.ron.common.db.MatchDAO;
 import com.ron.common.db.PlayerStatsDAO;
+import com.ron.common.messaging.MessageProtocol;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
@@ -37,13 +39,16 @@ public class RonProxy {
     private final ReconnectHandler reconnectHandler;
     private Database database;
     private PlayerStatsDAO statsDAO;
+    private MatchDAO matchDAO;
+    private MatchService matchService;
+    private QueueMirror queueMirror;
 
     public static final Gson GSON = new Gson();
 
     public static final MinecraftChannelIdentifier TRANSFER_CHANNEL =
-            MinecraftChannelIdentifier.from("ron:transfer");
+            MinecraftChannelIdentifier.from(MessageProtocol.Channels.TRANSFER);
     public static final MinecraftChannelIdentifier MATCH_CHANNEL =
-            MinecraftChannelIdentifier.from("ron:match");
+            MinecraftChannelIdentifier.from(MessageProtocol.Channels.MATCH);
 
     @Inject
     public RonProxy(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
@@ -69,6 +74,13 @@ public class RonProxy {
             instanceTracker.setStatsDAO(statsDAO);
             messageHandler.setStatsDAO(statsDAO);
         }
+        matchService = new MatchService(logger, matchDAO);
+        instanceTracker.setMatchService(matchService);
+        messageHandler.setMatchService(matchService);
+        queueMirror = new QueueMirror();
+        messageHandler.setQueueMirror(queueMirror);
+        instanceTracker.setQueueMirror(queueMirror);
+        rehydrateMatches();
         server.getChannelRegistrar().register(TRANSFER_CHANNEL, MATCH_CHANNEL);
         server.getEventManager().register(this, messageHandler);
         server.getEventManager().register(this, reconnectHandler);
@@ -82,6 +94,22 @@ public class RonProxy {
     public void onProxyShutdown(ProxyShutdownEvent event) {
         instanceTracker.shutdown();
         logger.info("RoN Proxy shut down");
+    }
+
+    private void rehydrateMatches() {
+        if (matchDAO == null) return;
+        try {
+            var unfinished = matchDAO.findUnfinished();
+            if (unfinished.isEmpty()) return;
+            for (var match : unfinished) {
+                matchService.rehydrate(match);
+                logger.info("Rehydrated match {} on {} (state={})",
+                        match.id(), match.instance(), match.state());
+            }
+            logger.info("Rehydrated {} unfinished matches — reconciliation will run on first poll", unfinished.size());
+        } catch (Exception e) {
+            logger.error("Failed to rehydrate matches from DB", e);
+        }
     }
 
     private void loadConfig() {
@@ -131,6 +159,7 @@ public class RonProxy {
                 database = new Database(dbFile.toString());
                 database.initialize();
                 statsDAO = new PlayerStatsDAO(database);
+                matchDAO = new MatchDAO(database);
                 logger.info("Database initialized at {}", dbFile);
             } catch (Exception e) {
                 logger.error("Failed to initialize database", e);

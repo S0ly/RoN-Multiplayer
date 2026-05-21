@@ -1,8 +1,13 @@
 package com.ron.proxy;
 
 import com.google.gson.*;
+import com.ron.common.db.MatchPlayer;
 import com.ron.common.db.PlayerStats;
 import com.ron.common.db.PlayerStatsDAO;
+import com.ron.common.messaging.MessageProtocol;
+import com.ron.common.messaging.MessageProtocol.Action;
+import com.ron.common.messaging.MessageProtocol.Channels;
+import com.ron.common.messaging.MessageProtocol.Type;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.PluginMessageEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
@@ -28,6 +33,8 @@ public class MessageHandler {
     private final Map<String, java.util.concurrent.atomic.AtomicInteger> transfersInProgress = new ConcurrentHashMap<>();
     private PlayerStatsDAO statsDAO;
     private RonProxy plugin;
+    private MatchService matchService;
+    private QueueMirror queueMirror;
 
     public MessageHandler(ProxyServer server, Logger logger, InstanceTracker instanceTracker,
                           PlayerRouter playerRouter, ActiveMatchTracker activeMatchTracker) {
@@ -46,6 +53,14 @@ public class MessageHandler {
         this.statsDAO = statsDAO;
     }
 
+    public void setMatchService(MatchService matchService) {
+        this.matchService = matchService;
+    }
+
+    public void setQueueMirror(QueueMirror queueMirror) {
+        this.queueMirror = queueMirror;
+    }
+
     @Subscribe
     public void onPluginMessage(PluginMessageEvent event) {
         if (!(event.getSource() instanceof ServerConnection source)) return;
@@ -55,8 +70,8 @@ public class MessageHandler {
         event.setResult(PluginMessageEvent.ForwardResult.handled());
 
         switch (channel) {
-            case "ron:transfer" -> handleTransfer(data, source);
-            case "ron:match" -> handleMatchRequest(data);
+            case Channels.TRANSFER -> handleTransfer(data, source);
+            case Channels.MATCH -> handleMatchRequest(data);
         }
     }
 
@@ -68,39 +83,44 @@ public class MessageHandler {
             if (json.has("players")) {
                 JsonArray playersArr = json.getAsJsonArray("players");
                 int playerCount = playersArr.size();
-                // Prevent duplicate transfers to the same instance
-                if (transfersInProgress.putIfAbsent(target, new java.util.concurrent.atomic.AtomicInteger(playerCount)) != null) {
+                boolean isSpectator = json.has("spectator") && json.get("spectator").getAsBoolean();
+                // Prevent duplicate transfers to the same instance (skipped for spectators — they trickle in independently)
+                if (!isSpectator && transfersInProgress.putIfAbsent(target, new java.util.concurrent.atomic.AtomicInteger(playerCount)) != null) {
                     logger.warn("Duplicate transfer to {} — skipping", target);
                     return;
                 }
 
-                // Register players in active match tracker first
                 Set<UUID> playerUuids = new HashSet<>();
                 for (var element : playersArr) {
                     playerUuids.add(UUID.fromString(element.getAsString()));
                 }
-                activeMatchTracker.registerMatch(target, playerUuids);
 
-                // Queue private match flag if set
-                if (json.has("privateMatch") && json.get("privateMatch").getAsBoolean()) {
-                    instanceTracker.queuePrivateFlag(target, true);
-                }
+                if (!isSpectator) {
+                    activeMatchTracker.registerMatch(target, playerUuids);
 
-                if (statsDAO != null) {
+                    boolean isPrivate = json.has("privateMatch") && json.get("privateMatch").getAsBoolean();
+
                     Map<String, Integer> scores = new HashMap<>();
-                    for (var element : playersArr) {
-                        String uuid = element.getAsString();
-                        try {
-                            Player player = server.getPlayer(UUID.fromString(uuid)).orElse(null);
-                            String name = player != null ? player.getUsername() : "unknown";
-                            PlayerStats stats = statsDAO.getOrCreate(uuid, name);
-                            scores.put(uuid, stats.points);
-                        } catch (Exception e) {
-                            logger.warn("Failed to look up score for {}", uuid);
+                    List<MatchPlayer> matchPlayers = new ArrayList<>();
+                    String matchId = matchService != null
+                            ? matchService.matchOn(target).map(m -> m.id()).orElse(target)
+                            : target;
+                    if (statsDAO != null) {
+                        for (var element : playersArr) {
+                            String uuid = element.getAsString();
+                            try {
+                                Player player = server.getPlayer(UUID.fromString(uuid)).orElse(null);
+                                String name = player != null ? player.getUsername() : "unknown";
+                                PlayerStats stats = statsDAO.getOrCreate(uuid, name);
+                                scores.put(uuid, stats.points);
+                                matchPlayers.add(new MatchPlayer(matchId, uuid, name, false, 0));
+                            } catch (Exception e) {
+                                logger.warn("Failed to look up score for {}", uuid);
+                            }
                         }
                     }
-                    if (!scores.isEmpty()) {
-                        instanceTracker.queuePlayerScores(target, scores);
+                    if (matchService != null) {
+                        matchService.attachPlayers(target, matchPlayers, scores, isPrivate);
                     }
                 }
 
@@ -117,10 +137,12 @@ public class MessageHandler {
                     i++;
                 }
 
-                // Safety fallback: clear transfer lock if not all players landed (handled normally by ServerConnectedEvent)
-                long fallbackMs = (long) playerUuids.size() * 1000L + 30_000L;
-                server.getScheduler().buildTask(plugin, () -> transfersInProgress.remove(target))
-                        .delay(fallbackMs, java.util.concurrent.TimeUnit.MILLISECONDS).schedule();
+                if (!isSpectator) {
+                    // Safety fallback: clear transfer lock if not all players landed (handled normally by ServerConnectedEvent)
+                    long fallbackMs = (long) playerUuids.size() * 1000L + 30_000L;
+                    server.getScheduler().buildTask(plugin, () -> transfersInProgress.remove(target))
+                            .delay(fallbackMs, java.util.concurrent.TimeUnit.MILLISECONDS).schedule();
+                }
 
             } else if (json.has("all") && json.get("all").getAsBoolean()) {
                 String sourceServer = source.getServerInfo().getName();
@@ -137,7 +159,7 @@ public class MessageHandler {
             String action = json.get("action").getAsString();
 
             switch (action) {
-                case "find_match" -> {
+                case Action.FIND_MATCH -> {
                     int playerCount = json.get("playerCount").getAsInt();
                     String chosenMap = json.has("chosenMap") ? json.get("chosenMap").getAsString() : null;
                     String chosenMode = json.has("chosenMode") ? json.get("chosenMode").getAsString() : null;
@@ -152,13 +174,11 @@ public class MessageHandler {
 
                         boolean sent = instanceTracker.loadMap(instance, map);
                         if (sent) {
-                            instanceTracker.setPendingMode(instance, mode);
+                            if (matchService != null) {
+                                matchService.prepareMatch(instance, map, mode);
+                            }
                             response.addProperty("found", true);
                             response.addProperty("instance", instance);
-                            response.addProperty("map", map);
-                            if (mode != null) {
-                                response.addProperty("mode", mode);
-                            }
                             logger.info("Match: {} players -> {} ({}, mode={})", playerCount, instance, map, mode);
                         } else {
                             response.addProperty("found", false);
@@ -170,12 +190,12 @@ public class MessageHandler {
                     }
                     sendToLobby(gson.toJson(response));
                 }
-                case "get_maps" -> {
+                case Action.GET_MAPS -> {
                     int playerCount = json.get("playerCount").getAsInt();
                     List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(playerCount, 5);
 
                     JsonObject response = new JsonObject();
-                    response.addProperty("type", "map_options");
+                    response.addProperty("type", Type.MAP_OPTIONS);
                     JsonArray mapsArr = new JsonArray();
                     for (InstanceTracker.MapWithModes m : maps) {
                         JsonObject obj = new JsonObject();
@@ -197,23 +217,33 @@ public class MessageHandler {
                     sendToLobby(gson.toJson(response));
                     logger.info("Sent {} compatible maps to lobby", maps.size());
                 }
-                case "confirm_match" -> {
+                case Action.CONFIRM_MATCH -> {
                     String instance = json.get("instance").getAsString();
-                    instanceTracker.confirmMatch(instance);
+                    if (matchService != null) {
+                        matchService.awaitReady(instance);
+                    }
                     logger.info("Confirmed match on {}, waiting for READY", instance);
                 }
-                case "get_info" -> {
+                case Action.CANCEL_MATCH -> {
+                    String instance = json.get("instance").getAsString();
+                    instanceTracker.cancelPendingMatch(instance);
+                    logger.info("Cancelled pending match on {} (lobby request)", instance);
+                }
+                case Action.GET_INFO -> {
                     sendToLobby(gson.toJson(instanceTracker.buildLobbyInfo()));
                 }
-                case "get_rank" -> {
+                case Action.QUEUE_UPDATE -> {
+                    if (queueMirror != null) queueMirror.update(json);
+                }
+                case Action.GET_RANK -> {
                     String uuid = json.get("uuid").getAsString();
                     String name = json.get("name").getAsString();
                     JsonObject response = new JsonObject();
-                    response.addProperty("type", "rank_response");
+                    response.addProperty("type", Type.RANK_RESPONSE);
+                    response.addProperty("uuid", uuid);
                     if (statsDAO != null) {
                         try {
                             PlayerStats stats = statsDAO.getOrCreate(uuid, name);
-                            response.addProperty("uuid", uuid);
                             response.addProperty("points", stats.points);
                             response.addProperty("wins", stats.wins);
                             response.addProperty("losses", stats.losses);
@@ -226,10 +256,10 @@ public class MessageHandler {
                     }
                     sendToLobby(gson.toJson(response));
                 }
-                case "get_leaderboard" -> {
+                case Action.GET_LEADERBOARD -> {
                     int limit = json.has("limit") ? json.get("limit").getAsInt() : 10;
                     JsonObject response = new JsonObject();
-                    response.addProperty("type", "leaderboard_response");
+                    response.addProperty("type", Type.LEADERBOARD_RESPONSE);
                     if (statsDAO != null) {
                         try {
                             List<PlayerStats> top = statsDAO.getTopPlayers(limit);
@@ -269,7 +299,7 @@ public class MessageHandler {
 
     public void sendInstanceReady(String instanceName) {
         JsonObject json = new JsonObject();
-        json.addProperty("type", "instance_ready");
+        json.addProperty("type", Type.INSTANCE_READY);
         json.addProperty("instance", instanceName);
         sendToLobby(gson.toJson(json));
         logger.info("Sent instance_ready to lobby for {}", instanceName);
@@ -280,7 +310,7 @@ public class MessageHandler {
         if (lobby.isEmpty()) return;
 
         byte[] payload = jsonData.getBytes(StandardCharsets.UTF_8);
-        MinecraftChannelIdentifier channel = MinecraftChannelIdentifier.from("ron:match");
+        MinecraftChannelIdentifier channel = MinecraftChannelIdentifier.from(MessageProtocol.Channels.MATCH);
 
         for (Player player : lobby.get().getPlayersConnected()) {
             if (player.getCurrentServer().isPresent()) {

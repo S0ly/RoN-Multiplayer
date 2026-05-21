@@ -6,8 +6,20 @@ import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class InstanceStateManager {
+
+    public static final int MIN_PLAYERS_PER_MATCH = 2;
+    public static final int MAX_PLAYERS_PER_MATCH = 8;
+
+    // Fixed team modes: name -> total players (teamCount is always 2)
+    private static final Map<String, Integer> TEAM_MODES = Map.of(
+            "1v1", 2,
+            "2v2", 4,
+            "3v3", 6,
+            "4v4", 8
+    );
 
     private static volatile InstanceState state = InstanceState.IDLE;
     private static volatile String currentMap = "unknown";
@@ -106,31 +118,72 @@ public class InstanceStateManager {
     }
 
     /**
-     * Parses coop modes like "coop_2-4" or "coop_4-4" → [min, max].
-     * Returns null if not a coop_*-* mode. "coop" alone returns null (caller falls through).
+     * Parses a range-mode name like "ffa_2-4" or "coop_2-4" → [min, max].
+     * Returns null on any malformed input, including violating the global
+     * MIN_PLAYERS_PER_MATCH / MAX_PLAYERS_PER_MATCH bounds.
      */
-    private static int[] parseCoopRange(String modeName) {
-        if (modeName == null) return null;
+    private static int[] parseRange(String prefix, String modeName) {
         String lower = modeName.toLowerCase();
-        if (!lower.startsWith("coop_")) return null;
-        String suffix = lower.substring(5);
+        if (!lower.startsWith(prefix)) return null;
+        String suffix = lower.substring(prefix.length());
         int dash = suffix.indexOf('-');
         if (dash <= 0 || dash == suffix.length() - 1) return null;
         try {
             int min = Integer.parseInt(suffix.substring(0, dash));
             int max = Integer.parseInt(suffix.substring(dash + 1));
-            if (min < 1 || max < min) return null;
+            if (min < MIN_PLAYERS_PER_MATCH || max < min || max > MAX_PLAYERS_PER_MATCH) return null;
             return new int[]{min, max};
         } catch (NumberFormatException e) {
             return null;
         }
     }
 
+    /**
+     * Validate a single mode entry against the whitelist:
+     *   - {@code ffa_<min>-<max>} / {@code coop_<min>-<max>} with 2 ≤ min ≤ max ≤ 8
+     *   - {@code 1v1}, {@code 2v2}, {@code 3v3}, {@code 4v4} with exact 2 teams + matching player count
+     *
+     * Returns null and logs a warning when the mode is rejected.
+     */
+    private static ModeInfo parseMode(String folder, String modeName, int teamCount, int totalPlayers) {
+        String lower = modeName.toLowerCase();
+
+        int[] ffaRange = parseRange("ffa_", lower);
+        if (ffaRange != null) {
+            return new ModeInfo(modeName, ffaRange[0], ffaRange[1], teamCount);
+        }
+        if (lower.startsWith("ffa")) {
+            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid ffa mode '{}', expected 'ffa_<min>-<max>' with 2 ≤ min ≤ max ≤ 8 — skipping", folder, modeName);
+            return null;
+        }
+
+        int[] coopRange = parseRange("coop_", lower);
+        if (coopRange != null) {
+            return new ModeInfo(modeName, coopRange[0], coopRange[1], teamCount);
+        }
+        if (lower.startsWith("coop")) {
+            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid coop mode '{}', expected 'coop_<min>-<max>' with 2 ≤ min ≤ max ≤ 8 — skipping", folder, modeName);
+            return null;
+        }
+
+        Integer expectedTotal = TEAM_MODES.get(lower);
+        if (expectedTotal != null) {
+            if (teamCount != 2 || totalPlayers != expectedTotal) {
+                RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires 2 teams of {} players (got teams={}, players={}) — skipping",
+                        folder, modeName, expectedTotal / 2, teamCount, totalPlayers);
+                return null;
+            }
+            return new ModeInfo(modeName, expectedTotal, expectedTotal, 2);
+        }
+
+        RonInstance.LOGGER.warn("rtsmap.json in {}: unsupported mode '{}' — allowed: ffa_<min>-<max>, coop_<min>-<max>, 1v1, 2v2, 3v3, 4v4", folder, modeName);
+        return null;
+    }
+
     private static MapInfo parseRtsMap(String folder, String json) {
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
-            // Required fields
             if (!root.has("name") || !root.has("startPositions") || !root.has("modes") || !root.has("defaultMode")) {
                 RonInstance.LOGGER.warn("rtsmap.json in {} missing required fields (name, startPositions, modes, defaultMode)", folder);
                 return null;
@@ -159,39 +212,18 @@ public class InstanceStateManager {
                     totalPlayers += team.getAsJsonArray().size();
                 }
 
-                if ("coop".equalsIgnoreCase(modeName)) {
-                    RonInstance.LOGGER.warn("rtsmap.json in {}: bare 'coop' mode is invalid, use 'coop_<min>-<max>' (e.g. coop_2-4) — skipping", folder);
-                    continue;
-                }
-
-                int minPlayers, maxPlayers;
-                int[] coopRange = parseCoopRange(modeName);
-                if (coopRange != null) {
-                    minPlayers = coopRange[0];
-                    maxPlayers = coopRange[1];
-                } else if ("ffa".equalsIgnoreCase(modeName)) {
-                    minPlayers = 2;
-                    maxPlayers = totalPlayers;
-                } else if (modeName.toLowerCase().startsWith("coop_")) {
-                    RonInstance.LOGGER.warn("rtsmap.json in {}: malformed coop mode '{}', expected 'coop_<min>-<max>' — skipping", folder, modeName);
-                    continue;
-                } else {
-                    minPlayers = totalPlayers;
-                    maxPlayers = totalPlayers;
-                }
-
-                modes.add(new ModeInfo(modeName, minPlayers, maxPlayers, teamCount));
+                ModeInfo mode = parseMode(folder, modeName, teamCount, totalPlayers);
+                if (mode != null) modes.add(mode);
             }
 
             if (modes.isEmpty()) {
-                RonInstance.LOGGER.warn("rtsmap.json in {} has no modes defined", folder);
+                RonInstance.LOGGER.warn("rtsmap.json in {} has no valid modes", folder);
                 return null;
             }
 
-            // Validate defaultMode exists
             boolean defaultExists = modes.stream().anyMatch(m -> m.name().equals(defaultMode));
             if (!defaultExists) {
-                RonInstance.LOGGER.warn("rtsmap.json in {} has defaultMode '{}' not found in modes", folder, defaultMode);
+                RonInstance.LOGGER.warn("rtsmap.json in {} has defaultMode '{}' not in valid modes", folder, defaultMode);
                 return null;
             }
 
