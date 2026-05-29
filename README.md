@@ -100,8 +100,8 @@ Different instances can have different maps. Put smaller maps on smaller servers
 3.  Fill ends → room locks, a 60s map+mode vote starts (/vote <number>)
 4.  Vote ends → lobby asks proxy to find a match for the chosen map/mode
 5.  Proxy picks an available instance and sends ron-loadmap via RCON
-6.  Instance writes flag file, halts, process manager restarts it
-7.  Instance boots with new map, state becomes READY
+6.  Instance writes flag file, halts; on shutdown (after final save + level close) it swaps world/ with the new map, then process manager restarts the JVM
+7.  Instance boots reading the fresh level.dat normally; state becomes READY
 8.  Proxy detects READY, transfers players from lobby
 9.  Players pick start positions/factions, RoN match begins (RUNNING)
 10. Victory detected (last player/team standing)
