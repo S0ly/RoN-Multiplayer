@@ -3,6 +3,7 @@ package com.ron.proxy;
 import com.google.gson.*;
 import com.ron.common.db.Match;
 import com.ron.common.db.PlayerStatsDAO;
+import com.ron.proxy.sync.RankSyncService;
 import com.velocitypowered.api.proxy.ProxyServer;
 import org.slf4j.Logger;
 
@@ -59,6 +60,7 @@ public class InstanceTracker {
     private PlayerStatsDAO statsDAO;
     private MatchService matchService;
     private QueueMirror queueMirror;
+    private RankSyncService rankSyncService;
 
     public InstanceTracker(ProxyServer server, Logger logger) {
         this.server = server;
@@ -71,6 +73,7 @@ public class InstanceTracker {
     public void setStatsDAO(PlayerStatsDAO statsDAO) { this.statsDAO = statsDAO; }
     public void setMatchService(MatchService matchService) { this.matchService = matchService; }
     public void setQueueMirror(QueueMirror queueMirror) { this.queueMirror = queueMirror; }
+    public void setRankSyncService(RankSyncService rankSyncService) { this.rankSyncService = rankSyncService; }
 
     public void addInstance(String name, String rconHost, int rconPort, String rconPassword) {
         configs.put(name, new InstanceConfig(name, rconHost, rconPort, rconPassword));
@@ -301,7 +304,7 @@ public class InstanceTracker {
         if (match.isPresent()) {
             logger.info("[{}] Match finished (ranked={}), processing results", instanceName, ranked);
             if (ranked && matchResult != null && statsDAO != null) {
-                MatchResultsWriter.write(statsDAO, matchResult, logger);
+                MatchResultsWriter.write(statsDAO, matchResult, rankSyncService, logger);
             } else if (!ranked) {
                 logger.info("[{}] Unranked match — skipping score updates", instanceName);
             }

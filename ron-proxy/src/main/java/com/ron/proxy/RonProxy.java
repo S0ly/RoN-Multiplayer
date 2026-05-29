@@ -7,6 +7,8 @@ import com.ron.common.db.Database;
 import com.ron.common.db.MatchDAO;
 import com.ron.common.db.PlayerStatsDAO;
 import com.ron.common.messaging.MessageProtocol;
+import com.ron.proxy.sync.RankSyncConfig;
+import com.ron.proxy.sync.RankSyncService;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
@@ -42,6 +44,7 @@ public class RonProxy {
     private MatchDAO matchDAO;
     private MatchService matchService;
     private QueueMirror queueMirror;
+    private RankSyncService rankSyncService;
 
     public static final Gson GSON = new Gson();
 
@@ -74,6 +77,9 @@ public class RonProxy {
             instanceTracker.setStatsDAO(statsDAO);
             messageHandler.setStatsDAO(statsDAO);
         }
+        if (rankSyncService != null) {
+            instanceTracker.setRankSyncService(rankSyncService);
+        }
         matchService = new MatchService(logger, matchDAO);
         instanceTracker.setMatchService(matchService);
         messageHandler.setMatchService(matchService);
@@ -93,7 +99,14 @@ public class RonProxy {
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         instanceTracker.shutdown();
+        if (rankSyncService != null) {
+            rankSyncService.shutdown();
+        }
         logger.info("RoN Proxy shut down");
+    }
+
+    public RankSyncService getRankSyncService() {
+        return rankSyncService;
     }
 
     private void rehydrateMatches() {
@@ -137,6 +150,7 @@ public class RonProxy {
                 defaultConfig.add("database", dbConfig);
 
                 defaultConfig.add("instances", instances);
+                defaultConfig.add("rankSync", RankSyncConfig.defaultStub());
                 Files.writeString(configFile, GSON.toJson(defaultConfig));
                 logger.info("Created default config at {}", configFile);
                 logger.warn("Default RCON passwords are 'changeme' — edit config.json before exposing this proxy");
@@ -163,6 +177,12 @@ public class RonProxy {
                 logger.info("Database initialized at {}", dbFile);
             } catch (Exception e) {
                 logger.error("Failed to initialize database", e);
+            }
+
+            RankSyncConfig syncConfig = RankSyncConfig.fromJson(config);
+            if (syncConfig.enabled && statsDAO != null) {
+                rankSyncService = new RankSyncService(syncConfig, statsDAO, logger);
+                rankSyncService.start();
             }
 
             if (config.has("instances")) {
