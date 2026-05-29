@@ -38,6 +38,9 @@ public class InstanceTracker {
     private static final int ACTIVE_POLL_SECONDS = 5;
     private static final int IDLE_POLL_SECONDS = 30;
     private static final long RCON_LOCK_TIMEOUT_SECONDS = 10;
+    // Paper closes its RCON listener while reloading a world during a map swap.
+    // Hold PREPARING through this gap instead of declaring the instance offline.
+    private static final int PREPARING_RCON_GRACE_POLLS = 18; // ~90s at 5s active poll
 
     private final ProxyServer server;
     private final Logger logger;
@@ -48,6 +51,7 @@ public class InstanceTracker {
     private final Map<String, InstanceInfo> instances = new ConcurrentHashMap<>();
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor();
     private final Map<String, Long> lastPollTime = new ConcurrentHashMap<>();
+    private final Map<String, Integer> consecutiveFailures = new ConcurrentHashMap<>();
 
     private MessageHandler messageHandler;
     private PlayerRouter playerRouter;
@@ -107,8 +111,18 @@ public class InstanceTracker {
 
             try {
                 pollInstance(name, config);
+                consecutiveFailures.remove(name);
             } catch (Exception e) {
                 InstanceState prevState = instances.containsKey(name) ? instances.get(name).state : InstanceState.OFFLINE;
+                int fails = consecutiveFailures.merge(name, 1, Integer::sum);
+
+                // Map swap closes RCON for ~30s while the world reloads. Hold PREPARING
+                // through the expected gap rather than declaring the instance dead and
+                // abandoning the assigned match.
+                if (prevState == InstanceState.PREPARING && fails < PREPARING_RCON_GRACE_POLLS) {
+                    continue;
+                }
+
                 instances.put(name, new InstanceInfo(InstanceState.OFFLINE, "", 0, 0, List.of(), 0,
                     cachedMaps.getOrDefault(name, List.of()), null));
                 if (prevState != InstanceState.OFFLINE) {
@@ -188,10 +202,15 @@ public class InstanceTracker {
             }
             case FINISHED -> handleFinished(name, matchResult, ranked);
             case IDLE -> {
-                if (prev != InstanceState.OFFLINE && prev != InstanceState.IDLE) {
+                if (prev != InstanceState.OFFLINE && prev != InstanceState.IDLE && prev != InstanceState.PREPARING) {
                     cachedMaps.remove(name);
                 }
-                if (matchService != null) matchService.onIdle(name);
+                // PREPARING -> IDLE is the brief post-map-swap window before the instance
+                // settles into READY. Don't abandon the assigned match here; the READY
+                // transition is imminent.
+                if (matchService != null && prev != InstanceState.PREPARING) {
+                    matchService.onIdle(name);
+                }
             }
             default -> { /* no-op for OFFLINE, PREPARING transitions */ }
         }
