@@ -127,8 +127,11 @@ public class InstanceTracker {
                 }
 
                 instances.put(name, new InstanceInfo(InstanceState.OFFLINE, "", 0, 0, List.of(), 0,
-                    cachedMaps.getOrDefault(name, List.of()), null));
+                    List.of(), null));
                 if (prevState != InstanceState.OFFLINE) {
+                    // Drop cached maps so the next successful poll refetches —
+                    // the instance may come back with a different map set.
+                    cachedMaps.remove(name);
                     logger.warn("[{}] Went offline: {}", name, e.getMessage());
                     if (matchService != null) matchService.onOffline(name);
                 }

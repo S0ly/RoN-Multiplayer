@@ -331,15 +331,22 @@ public class MatchLifecycle {
                 for (RTSPlayer p : rtsPlayers) {
                     remaining.add(p.name);
                 }
-                // Only declare draw if an enemy team was eliminated. If the remaining
-                // alliance group is the same size as initial participants, everyone
-                // started on the same team (coop/single-team) and no enemy ever existed.
+                // Enemy team eliminated: the only remaining players are a single
+                // alliance smaller than the initial roster. In team modes that
+                // alliance wins; in FFA a coalition surviving together is a stalemate.
                 if (allianceGroup != null
                         && remaining.equals(allianceGroup)
                         && allianceGroup.size() < initialParticipants.size()) {
                     victoryHandled = true;
-                    RonInstance.LOGGER.info("MatchLifecycle: All remaining players allied — draw: {}", remaining);
-                    MatchEndHandler.onDraw(new ArrayList<>(initialParticipants));
+                    if (isFFA()) {
+                        RonInstance.LOGGER.info("MatchLifecycle: FFA survivors all allied — draw: {}", remaining);
+                        MatchEndHandler.onDraw(new ArrayList<>(initialParticipants));
+                    } else {
+                        Set<String> losers = new HashSet<>(initialParticipants);
+                        losers.removeAll(allianceGroup);
+                        RonInstance.LOGGER.info("MatchLifecycle: Enemy team eliminated — Winners: {}, Losers: {}", allianceGroup, losers);
+                        MatchEndHandler.onVictory(new ArrayList<>(allianceGroup), new ArrayList<>(losers));
+                    }
                 }
             }
         }
