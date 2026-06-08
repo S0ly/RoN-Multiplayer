@@ -1,12 +1,10 @@
 package com.ron.instance;
 
-import com.solegendary.reignofnether.faction.Faction;
 import com.solegendary.reignofnether.alliance.AlliancesServerEvents;
 import com.solegendary.reignofnether.player.PlayerClientboundPacket;
 import com.solegendary.reignofnether.player.PlayerServerEvents;
 import com.solegendary.reignofnether.player.RTSPlayer;
 import com.solegendary.reignofnether.startpos.StartPos;
-import com.solegendary.reignofnether.startpos.StartPosClientboundPacket;
 import com.solegendary.reignofnether.startpos.StartPosServerEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -21,28 +19,19 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Unified match lifecycle.
- *
- * State machine: IDLE → READYING → STARTING → RUNNING → (FINISHED via InstanceState)
- *
- * Players are auto-flipped into the RTS camera on login. They become
- * participants by clicking a StartPos slot (which atomically picks slot + faction).
- * When everyone is ready or the deadline expires, RoN's own startGameCountdown
- * runs and at tick 0 promotes spectators to active RTS players, auto-allies
- * teammates by colorId, and locks new joiners.
- */
+// IDLE → READYING → RUNNING → (FINISHED via InstanceState).
+// The mod owns the countdown; we just watch rtsPlayers and cancel if it
+// never starts.
 public class MatchLifecycle {
 
     private static final int READYING_SECONDS = 120;
     private static final int GRACE_PERIOD_SECONDS = 120;
     private static final int MAX_MATCH_SECONDS = 7200;
     private static final int READY_TIMEOUT_SECONDS = 300;
-    private static final int STARTING_TIMEOUT_SECONDS = 15;
     private static final int EMPTY_MATCH_ABANDON_SECONDS = 60;
     private static final int WELCOME_DELAY_SECONDS = 5;
 
-    enum Phase { IDLE, READYING, STARTING, RUNNING }
+    enum Phase { IDLE, READYING, RUNNING }
 
     private static volatile Phase phase = Phase.IDLE;
     private static volatile int expectedPlayers = 0;
@@ -115,7 +104,10 @@ public class MatchLifecycle {
             phaseTicks = 0;
             phase = Phase.READYING;
             welcomeShown.set(false);
-            RonInstance.LOGGER.info("MatchLifecycle: READYING phase ({} slots for mode)", expectedPlayers);
+            RonInstance.LOGGER.info("MatchLifecycle: READYING phase ({} slots for mode={}, isCoop={}, isFFA={}, isRanked={})",
+                    expectedPlayers, InstanceStateManager.getCurrentMode(), isCoop(), isFFA(), isRanked());
+            runCommand("gamerule coopMode " + isCoop());
+            runCommand("gamerule lockAlliances " + !isFFA());
             gracePeriods.scheduleAfter(WELCOME_DELAY_SECONDS, MatchLifecycle::showWelcomeIfNeeded);
         } else if (phase == Phase.READYING) {
             broadcast(ChatFormatting.GRAY + name + " joined.");
@@ -165,7 +157,6 @@ public class MatchLifecycle {
         switch (phase) {
             case IDLE -> {}
             case READYING -> tickReadying();
-            case STARTING -> tickStarting();
             case RUNNING -> tickRunning();
         }
     }
@@ -175,83 +166,11 @@ public class MatchLifecycle {
     // ========================================================================
 
     private static void tickReadying() {
-        // Block premature starts; we drive the countdown ourselves.
-        StartPosServerEvents.cancelStartGameCountdown(true);
-
         phaseTicks++;
         selections.refreshAll();
-
-        int slotsClaimed = 0;
-        int slotsReady = 0;
-        for (StartPos pos : StartPosServerEvents.startPoses) {
-            if (!pos.playerName.isEmpty()) {
-                slotsClaimed++;
-                if (pos.faction != Faction.NONE) slotsReady++;
-            }
-        }
-
-        // Early start: everyone expected has claimed and picked.
-        if (slotsReady >= expectedPlayers && slotsClaimed == slotsReady && slotsReady >= 2) {
-            broadcast(ChatFormatting.GREEN + "All players ready! Starting game...");
-            populateParticipants();
-            beginStarting();
-            return;
-        }
-
-        // Deadline.
-        if (phaseTicks >= READYING_SECONDS * 20) {
-            if (slotsClaimed < 2) {
-                RonInstance.LOGGER.warn("MatchLifecycle: Readying timeout with {} slots claimed, cancelling", slotsClaimed);
-                broadcast(ChatFormatting.RED + "Match cancelled — not enough players ready.");
-                InstanceStateManager.setState(InstanceState.FINISHED);
-                phase = Phase.IDLE;
-                return;
-            }
-            RonInstance.LOGGER.info("MatchLifecycle: Readying timeout, auto-assigning + starting with {} players", slotsClaimed);
-            populateParticipants();
-            autoAssignFactions();
-            beginStarting();
-            return;
-        }
-
-        // Periodic status pings.
-        int secondsLeft = (READYING_SECONDS * 20 - phaseTicks) / 20;
-        if (phaseTicks % 20 == 0) {
-            if (secondsLeft == 60 || secondsLeft == 30 || secondsLeft == 15 || secondsLeft == 10
-                    || (secondsLeft <= 5 && secondsLeft > 0)) {
-                broadcast(ChatFormatting.YELLOW + "" + secondsLeft + "s left — picks: " + slotsReady + "/" + expectedPlayers);
-            }
-        }
-    }
-
-    private static void populateParticipants() {
-        if (serverInstance == null) return;
-        for (StartPos pos : StartPosServerEvents.startPoses) {
-            if (pos.playerName.isEmpty()) continue;
-            ServerPlayer sp = serverInstance.getPlayerList().getPlayerByName(pos.playerName);
-            if (sp != null) {
-                PlayerTracker.addParticipant(sp.getUUID(), pos.playerName);
-            }
-        }
-    }
-
-    // ========================================================================
-    // Phase: STARTING
-    // ========================================================================
-
-    private static void beginStarting() {
-        phase = Phase.STARTING;
-        phaseTicks = 0;
-        RonInstance.LOGGER.info("MatchLifecycle: STARTING — mode={}, map={}, isCoop={}, isFFA={}, isRanked={}",
-                InstanceStateManager.getCurrentMode(), InstanceStateManager.getCurrentMap(),
-                isCoop(), isFFA(), isRanked());
-        runCommand("gamerule coopMode " + isCoop());
-        runCommand("gamerule lockAlliances " + !isFFA());
-        StartPosServerEvents.startGameCountdown();
-    }
-
-    private static void tickStarting() {
-        phaseTicks++;
+        // startPoses gets cleared the moment the mod's countdown ends, so
+        // capture participants every tick while we still can.
+        trackParticipants();
 
         List<RTSPlayer> rtsPlayers = PlayerServerEvents.rtsPlayers;
         synchronized (rtsPlayers) {
@@ -270,12 +189,32 @@ public class MatchLifecycle {
             }
         }
 
-        if (phaseTicks >= STARTING_TIMEOUT_SECONDS * 20) {
-            RonInstance.LOGGER.error("MatchLifecycle: STARTING timeout — game never started");
-            StartPosServerEvents.cancelStartGameCountdown(true);
-            broadcast(ChatFormatting.RED + "Match cancelled — failed to start");
+        if (phaseTicks >= READYING_SECONDS * 20) {
+            RonInstance.LOGGER.warn("MatchLifecycle: Readying timeout — cancelling match");
+            broadcast(ChatFormatting.RED + "Match cancelled — players took too long to ready up.");
             InstanceStateManager.setState(InstanceState.FINISHED);
             phase = Phase.IDLE;
+            return;
+        }
+
+        // Periodic status pings.
+        int secondsLeft = (READYING_SECONDS * 20 - phaseTicks) / 20;
+        if (phaseTicks % 20 == 0) {
+            if (secondsLeft == 60 || secondsLeft == 30 || secondsLeft == 15 || secondsLeft == 10
+                    || (secondsLeft <= 5 && secondsLeft > 0)) {
+                broadcast(ChatFormatting.YELLOW + "" + secondsLeft + "s left to ready up");
+            }
+        }
+    }
+
+    private static void trackParticipants() {
+        if (serverInstance == null) return;
+        for (StartPos pos : StartPosServerEvents.startPoses) {
+            if (pos.playerName.isEmpty()) continue;
+            ServerPlayer sp = serverInstance.getPlayerList().getPlayerByName(pos.playerName);
+            if (sp != null) {
+                PlayerTracker.addParticipant(sp.getUUID(), pos.playerName);
+            }
         }
     }
 
@@ -391,28 +330,6 @@ public class MatchLifecycle {
         return false;
     }
 
-    private static void autoAssignFactions() {
-        Faction[] factions = {Faction.VILLAGERS, Faction.MONSTERS, Faction.PIGLINS};
-        Random random = new Random();
-
-        for (StartPos pos : StartPosServerEvents.startPoses) {
-            if (pos.playerName.isEmpty()) continue;
-            if (pos.faction != Faction.NONE) continue;
-
-            Faction randomFaction = factions[random.nextInt(factions.length)];
-            pos.faction = randomFaction;
-            StartPosClientboundPacket.reservePos(pos.pos, randomFaction, pos.playerName);
-
-            ServerPlayer sp = serverInstance != null
-                    ? serverInstance.getPlayerList().getPlayerByName(pos.playerName) : null;
-            if (sp != null) {
-                sp.sendSystemMessage(Component.literal(
-                        "Time's up! You were assigned " + randomFaction.name() + ".").withStyle(ChatFormatting.YELLOW));
-            }
-            RonInstance.LOGGER.info("MatchLifecycle: Auto-assigned {} to {} at pos {}", pos.playerName, randomFaction.name(), pos.pos);
-        }
-    }
-
     private static int countOnlineParticipants() {
         if (serverInstance == null) return 0;
         int count = 0;
@@ -445,7 +362,7 @@ public class MatchLifecycle {
         serverInstance.execute(() -> {
             if (phase != Phase.READYING) return;
             broadcastMapCredits();
-            broadcast(ChatFormatting.GREEN + "Pick a start position + faction to ready up!");
+            broadcast(ChatFormatting.GREEN + "Pick a start position + faction, then click Ready!");
             broadcast(ChatFormatting.YELLOW + "You have " + READYING_SECONDS + "s. Slot = team in this mode.");
         });
     }

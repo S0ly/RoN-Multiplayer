@@ -55,6 +55,9 @@ public class LobbyMessaging implements PluginMessageListener {
                             json.get("minPlayers").getAsInt(),
                             json.get("availableInstances").getAsInt()
                         );
+                        // Status row in any open Hub now has fresh data.
+                        Bukkit.getScheduler().runTask(RonLobby.INSTANCE,
+                                com.ron.lobby.ui.menu.MenuService::refreshLobbyMenus);
                         TimedCallback infoCb = pendingServerInfoCallback.getAndSet(null);
                         if (infoCb != null) {
                             Bukkit.getScheduler().runTask(RonLobby.INSTANCE, () -> infoCb.callback().accept(json));

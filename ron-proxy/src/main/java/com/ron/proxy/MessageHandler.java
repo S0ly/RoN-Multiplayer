@@ -192,7 +192,7 @@ public class MessageHandler {
                 }
                 case Action.GET_MAPS -> {
                     int playerCount = json.get("playerCount").getAsInt();
-                    List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(playerCount, 5);
+                    List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(playerCount, Integer.MAX_VALUE);
 
                     JsonObject response = new JsonObject();
                     response.addProperty("type", Type.MAP_OPTIONS);
@@ -295,6 +295,11 @@ public class MessageHandler {
         if (pending != null && pending.decrementAndGet() <= 0) {
             transfersInProgress.remove(target);
         }
+    }
+
+    public void pushLobbyInfo() {
+        if (instanceTracker == null) return;
+        sendToLobby(gson.toJson(instanceTracker.buildLobbyInfo()));
     }
 
     public void sendInstanceReady(String instanceName) {

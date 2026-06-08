@@ -4,7 +4,13 @@ import com.ron.common.messaging.MessageProtocol.Channels;
 import com.ron.lobby.commands.*;
 import com.ron.lobby.messaging.LobbyMessaging;
 import com.ron.lobby.queue.MatchQueue;
+import com.ron.lobby.ui.UiSettings;
+import com.ron.lobby.ui.menu.ChatPrompt;
+import com.ron.lobby.ui.menu.MenuListener;
+import com.ron.lobby.ui.menu.MenuService;
 import com.ron.lobby.world.VoidWorldSetup;
+import org.bukkit.ChatColor;
+import org.bukkit.command.CommandExecutor;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class RonLobby extends JavaPlugin {
@@ -16,6 +22,15 @@ public class RonLobby extends JavaPlugin {
     public void onEnable() {
         INSTANCE = this;
         saveDefaultConfig();
+        // Merge any new keys from the bundled config.yml into the user's file
+        // so additions across plugin versions become editable on disk.
+        getConfig().options().copyDefaults(true);
+        saveConfig();
+
+        // UI settings — drive chat/menu/HUD toggles
+        UiSettings uiSettings = UiSettings.load(getConfig());
+        MatchQueue.setUiSettings(uiSettings);
+        MenuService.setSettings(uiSettings);
 
         // Initialize queue
         matchQueue = new MatchQueue(this);
@@ -33,16 +48,24 @@ public class RonLobby extends JavaPlugin {
         // Register events
         getServer().getPluginManager().registerEvents(new VoidWorldSetup(), this);
         getServer().getPluginManager().registerEvents(matchQueue, this);
+        getServer().getPluginManager().registerEvents(new MenuListener(), this);
+        getServer().getPluginManager().registerEvents(new ChatPrompt(), this);
 
         // Register commands
-        getCommand("queue").setExecutor(new QueueCommand());
-        getCommand("leave").setExecutor(new LeaveCommand());
-        getCommand("spectate").setExecutor(new SpectateCommand());
-        getCommand("leaderboard").setExecutor(new LeaderboardCommand());
-        getCommand("rank").setExecutor(new RankCommand());
-        getCommand("vote").setExecutor(new VoteCommand());
-        getCommand("matches").setExecutor(new MatchesCommand());
-        getCommand("ronstatus").setExecutor(new StatusCommand());
+        CommandExecutor disabled = (sender, cmd, label, args) -> {
+            sender.sendMessage(ChatColor.YELLOW + "[RoN] Chat commands are disabled. Use /menu.");
+            return true;
+        };
+        boolean cc = uiSettings.chatCommands();
+        getCommand("queue").setExecutor(cc ? new QueueCommand() : disabled);
+        getCommand("leave").setExecutor(cc ? new LeaveCommand() : disabled);
+        getCommand("spectate").setExecutor(cc ? new SpectateCommand() : disabled);
+        getCommand("leaderboard").setExecutor(cc ? new LeaderboardCommand() : disabled);
+        getCommand("rank").setExecutor(cc ? new RankCommand() : disabled);
+        getCommand("vote").setExecutor(cc ? new VoteCommand() : disabled);
+        getCommand("matches").setExecutor(cc ? new MatchesCommand() : disabled);
+        getCommand("ronstatus").setExecutor(new StatusCommand()); // OP tool — always on
+        getCommand("menu").setExecutor(new MenuCommand());
 
         // Periodic cleanup of stale messaging callbacks (every 60s)
         getServer().getScheduler().runTaskTimer(this, LobbyMessaging::cleanupStaleCallbacks, 1200L, 1200L);

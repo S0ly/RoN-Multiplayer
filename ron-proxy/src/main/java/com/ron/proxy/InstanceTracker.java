@@ -220,6 +220,7 @@ public class InstanceTracker {
             }
             default -> { /* no-op for OFFLINE, PREPARING transitions */ }
         }
+        if (messageHandler != null) messageHandler.pushLobbyInfo();
     }
 
     private void sendReadyPayload(String name, MatchService.ReadyPayload payload) {

@@ -1,6 +1,8 @@
 package com.ron.lobby.queue;
 
 import com.ron.lobby.RonLobby;
+import com.ron.lobby.ui.menu.MenuService;
+import com.ron.lobby.ui.menu.SoundEffects;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -142,6 +144,8 @@ class VoteSession {
         Player player = Bukkit.getPlayer(uuid);
         String name = player != null ? player.getName() : "?";
         broadcast(participants, name + " voted.");
+        MenuService.refreshVoteMenus();
+        SoundEffects.voteCast(player);
 
         if (votes.size() >= participants.size() && secondsRemaining > 10) {
             secondsRemaining = 10;
@@ -153,6 +157,20 @@ class VoteSession {
         return mapOptions != null;
     }
 
+    List<MapOption> getMapOptions() {
+        return mapOptions == null ? List.of() : List.copyOf(mapOptions);
+    }
+
+    int getSecondsRemaining() {
+        return secondsRemaining;
+    }
+
+    Map<CombinedOption, Integer> getVoteCounts() {
+        Map<CombinedOption, Integer> counts = new HashMap<>();
+        for (CombinedOption v : votes.values()) counts.merge(v, 1, Integer::sum);
+        return counts;
+    }
+
     void clear() {
         mapOptions = null;
         votes.clear();
@@ -160,10 +178,11 @@ class VoteSession {
             Bukkit.getScheduler().cancelTask(task);
             task = -1;
         }
+        MenuService.clearVoteOverlays();
     }
 
     void removeVoter(UUID uuid) {
-        votes.remove(uuid);
+        if (votes.remove(uuid) != null) MenuService.refreshVoteMenus();
     }
 
     private void tally(Set<UUID> voters, Consumer<CombinedOption> onWinner) {
@@ -208,6 +227,7 @@ class VoteSession {
     }
 
     private static void broadcast(Set<UUID> voters, String message) {
+        if (!MatchQueue.uiSettings().chatMessages()) return;
         for (UUID uuid : voters) {
             Player p = Bukkit.getPlayer(uuid);
             if (p != null) p.sendMessage(ChatColor.GREEN + "[RoN] " + message);

@@ -7,3 +7,30 @@ queue:
   fill-seconds: 120
   # Seconds for the combined map+mode vote after the room is locked.
   vote-seconds: 60
+
+# UI / UX surfaces — every channel below can be toggled independently so the
+# lobby plays nicely with other plugins on the same server.
+ui:
+  # Keep the chat slash commands (/queue, /vote, /rank, /leaderboard, etc.) registered.
+  chat-commands: true
+  # Keep printing queue/vote/match broadcasts to chat. Turn off for a HUD/GUI-only feel.
+  chat-messages: true
+  # Auto-open the hub inventory when a player joins the lobby.
+  auto-open-hub-on-join: true
+  # Auto-open the vote inventory for each voter when the vote starts.
+  auto-open-vote: true
+  # Give players a compass in slot 0 that opens the lobby menu on right-click.
+  # Has no effect if the player's gamemode (set by another plugin) doesn't allow
+  # holding items, e.g. SPECTATOR.
+  hand-items: false
+  # Sound effects on lobby events (queue join/leave, vote cast, countdown ticks…).
+  sounds: true
+  hud:
+    # Live vote countdown shown as a BossBar above the inventory.
+    bossbar-vote: true
+    # Queue-fill countdown BossBar shown while the public queue is locking in.
+    bossbar-queue: true
+    # Sidebar scoreboard showing queue size and your status.
+    scoreboard-queue: false
+    # Action-bar text showing current state (In queue / Voting / Waiting…).
+    actionbar-status: false

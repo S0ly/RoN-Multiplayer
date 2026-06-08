@@ -22,6 +22,10 @@ commands:
     usage: /vote <number> [mode]
   matches:
     description: View running matches and available servers
+  menu:
+    description: Open the lobby menu (hub, vote, private, matches, leaderboard, rank)
+    usage: /menu [vote|private|matches|leaderboard|rank]
+    aliases: [hub, lobby]
   ronstatus:
     description: Show server status (OP only)
     permission: ron.status

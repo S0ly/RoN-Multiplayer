@@ -215,6 +215,9 @@ public class RonCommands {
                     }
 
                     InstanceStateManager.setCurrentMode(mode);
+                    context.getSource().getServer().getCommands().performPrefixedCommand(
+                        context.getSource().getServer().createCommandSourceStack(),
+                        "rtsapi-set-starting-teams-mode " + mode);
                     context.getSource().sendSuccess(
                         () -> Component.literal("Mode set to: " + mode), true);
                     return 1;

@@ -8,13 +8,9 @@ class PrivateLobby {
     final String code;
     final UUID host;
     final Set<UUID> players = new LinkedHashSet<>();
-    boolean countdownActive = false;
-    int countdownTask = -1;
-    int countdownSeconds;
 
-    PrivateLobby(String code, UUID host, int initialCountdownSeconds) {
+    PrivateLobby(String code, UUID host) {
         this.code = code;
         this.host = host;
-        this.countdownSeconds = initialCountdownSeconds;
     }
 }

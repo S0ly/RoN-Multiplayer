@@ -4,10 +4,13 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.ron.lobby.RonLobby;
 import com.ron.lobby.messaging.LobbyMessaging;
+import com.ron.lobby.queue.MatchQueue;
 import com.ron.lobby.ui.LobbyUI;
+import com.ron.lobby.ui.UiSettings;
+import com.ron.lobby.ui.menu.HotbarItems;
+import com.ron.lobby.ui.menu.MenuService;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -20,17 +23,29 @@ public class VoidWorldSetup implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        UiSettings ui = MatchQueue.uiSettings();
 
-        // Spectator mode — hides body, hotbar, and inventory
-        player.setGameMode(GameMode.SPECTATOR);
+        if (ui.handItems()) {
+            HotbarItems.give(player);
+        }
 
-        // Welcome screen with running matches
-        if (RonLobby.INSTANCE.getConfig().getBoolean("show-welcome-message", true)) {
-            LobbyMessaging.requestServerInfo();
+        boolean showWelcome = RonLobby.INSTANCE.getConfig().getBoolean("show-welcome-message", true);
+        if (showWelcome || ui.autoOpenHubOnJoin()) {
+            // Wait one tick for the player's plugin-message channel to settle,
+            // then pull fresh server info and render UI in the response callback.
+            // This is the same path /ronstatus uses — reliable even on cold boot
+            // when this is the first player and no other conduits exist.
             Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE, () -> {
-                LobbyUI.refreshScreen(player);
-                showRunningMatches(player);
-            }, 20L); // 1 second delay to allow server info response
+                LobbyMessaging.requestServerInfo(info -> {
+                    if (showWelcome && ui.chatMessages()) {
+                        LobbyUI.refreshScreen(player);
+                        showRunningMatches(player);
+                    }
+                    if (ui.autoOpenHubOnJoin()) {
+                        MenuService.openHub(player);
+                    }
+                });
+            }, 20L);
         }
     }
 

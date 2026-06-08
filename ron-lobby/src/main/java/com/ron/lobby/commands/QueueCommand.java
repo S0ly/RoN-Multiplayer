@@ -55,7 +55,7 @@ public class QueueCommand implements CommandExecutor {
                 RonLobby.matchQueue.leaveQueue(player.getUniqueId(), player.getName());
             }
             case "start" -> {
-                RonLobby.matchQueue.forceStart(player.getUniqueId());
+                RonLobby.matchQueue.startPrivate(player.getUniqueId());
             }
             default -> {
                 player.sendMessage(ChatColor.GOLD + "[RoN] Queue commands:");
