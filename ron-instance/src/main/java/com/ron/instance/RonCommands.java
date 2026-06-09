@@ -41,8 +41,7 @@ public class RonCommands {
                 for (InstanceStateManager.ModeInfo mode : map.modes()) {
                     JsonObject modeObj = new JsonObject();
                     modeObj.addProperty("name", mode.name());
-                    modeObj.addProperty("minPlayers", mode.minPlayers());
-                    modeObj.addProperty("maxPlayers", mode.maxPlayers());
+                    modeObj.addProperty("players", mode.players());
                     modeObj.addProperty("teamCount", mode.teamCount());
                     modesArr.add(modeObj);
                 }

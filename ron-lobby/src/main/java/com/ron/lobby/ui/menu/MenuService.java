@@ -259,7 +259,7 @@ public final class MenuService {
         List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
         for (ModeOption m : modes) {
             lore.add(ChatColor.AQUA + "• " + m.name()
-                    + ChatColor.GRAY + " (" + m.minPlayers() + "-" + m.maxPlayers() + " players)");
+                    + ChatColor.GRAY + " (" + m.players() + " players)");
         }
         lore.add("");
         lore.add(ChatColor.GRAY + "Votes: " + ChatColor.WHITE + voteCount);
@@ -320,7 +320,7 @@ public final class MenuService {
         ItemStack item = MenuItems.action(icon,
                 voteCountLabel(ChatColor.AQUA + mode.name(), voteCount),
                 "vote-mode", mapFolder + "/" + mode.name(),
-                ChatColor.GRAY + "" + mode.minPlayers() + "-" + mode.maxPlayers() + " players",
+                ChatColor.GRAY + "" + mode.players() + " players",
                 "",
                 ChatColor.GRAY + "Votes: " + ChatColor.WHITE + voteCount,
                 ChatColor.GREEN + "Click to vote");

@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class InstanceTracker {
 
     public record InstanceConfig(String name, String rconHost, int rconPort, String rconPassword) {}
-    public record ModeInfo(String name, int minPlayers, int maxPlayers) {}
+    public record ModeInfo(String name, int players) {}
     public record MapInfo(String folder, String name, List<ModeInfo> modes) {}
     public record MapWithModes(String folder, String name, List<ModeInfo> compatibleModes) {}
     public record MatchResult(String instanceName, String mapFolder, String mode) {}
@@ -283,8 +283,7 @@ public class InstanceTracker {
                     JsonObject modeObj = modeEl.getAsJsonObject();
                     modes.add(new ModeInfo(
                         modeObj.get("name").getAsString(),
-                        modeObj.get("minPlayers").getAsInt(),
-                        modeObj.get("maxPlayers").getAsInt()
+                        modeObj.get("players").getAsInt()
                     ));
                 }
             }
@@ -498,7 +497,7 @@ public class InstanceTracker {
 
                 List<ModeInfo> compatible = new ArrayList<>();
                 for (ModeInfo mode : map.modes()) {
-                    if (playerCount >= mode.minPlayers() && playerCount <= mode.maxPlayers()) {
+                    if (playerCount == mode.players()) {
                         compatible.add(mode);
                     }
                 }
@@ -533,8 +532,7 @@ public class InstanceTracker {
 
                 // Check if the map has a compatible mode
                 for (ModeInfo m : map.modes()) {
-                    if (mode != null && m.name().equals(mode) &&
-                            playerCount >= m.minPlayers() && playerCount <= m.maxPlayers()) {
+                    if (mode != null && m.name().equals(mode) && playerCount == m.players()) {
                         return Optional.of(new MatchResult(name, map.folder(), mode));
                     }
                 }
@@ -542,7 +540,7 @@ public class InstanceTracker {
                 // If no specific mode requested, find any compatible mode
                 if (mode == null) {
                     for (ModeInfo m : map.modes()) {
-                        if (playerCount >= m.minPlayers() && playerCount <= m.maxPlayers()) {
+                        if (playerCount == m.players()) {
                             return Optional.of(new MatchResult(name, map.folder(), m.name()));
                         }
                     }
@@ -567,7 +565,7 @@ public class InstanceTracker {
 
             for (MapInfo map : info.maps) {
                 for (ModeInfo m : map.modes()) {
-                    if (playerCount >= m.minPlayers() && playerCount <= m.maxPlayers()) {
+                    if (playerCount == m.players()) {
                         MatchResult result = new MatchResult(name, map.folder(), m.name());
                         if (preferredMode != null && m.name().equals(preferredMode)) {
                             preferred.add(result);
@@ -612,13 +610,13 @@ public class InstanceTracker {
     private int getMinPlayers() {
         return instances.values().stream().flatMap(i -> i.maps.stream())
                 .flatMap(m -> m.modes().stream())
-                .mapToInt(ModeInfo::minPlayers).min().orElse(2);
+                .mapToInt(ModeInfo::players).min().orElse(2);
     }
 
     private int getMaxPlayers() {
         return instances.values().stream().flatMap(i -> i.maps.stream())
                 .flatMap(m -> m.modes().stream())
-                .mapToInt(ModeInfo::maxPlayers).max().orElse(2);
+                .mapToInt(ModeInfo::players).max().orElse(2);
     }
 
     public JsonObject buildLobbyInfo() {

@@ -110,8 +110,7 @@ public class LobbyMessaging implements PluginMessageListener {
                         JsonObject modeObj = modeEl.getAsJsonObject();
                         modes.add(new MatchQueue.ModeOption(
                                 modeObj.get("name").getAsString(),
-                                modeObj.get("minPlayers").getAsInt(),
-                                modeObj.get("maxPlayers").getAsInt()
+                                modeObj.get("players").getAsInt()
                         ));
                     }
                 }

@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Comparator;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -24,6 +25,10 @@ public class MapSwapper {
 
     private static final String PENDING_FLAG = "pending-map.txt";
     private static final String COMPLETED_FLAG = "swapped-map.txt";
+
+    // Top-level folders in a source map that hold per-player state (gamemode, inventory,
+    // stats, advancements). Skipped during copy so map-author residue doesn't leak into matches.
+    private static final Set<String> SKIP_TOP_LEVEL = Set.of("playerdata", "stats", "advancements");
 
     private static volatile String swappedMapFolder = null;
 
@@ -149,6 +154,9 @@ public class MapSwapper {
         Files.walkFileTree(source, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                if (source.equals(dir.getParent()) && SKIP_TOP_LEVEL.contains(dir.getFileName().toString())) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
                 Path targetDir = target.resolve(source.relativize(dir));
                 Files.createDirectories(targetDir);
                 return FileVisitResult.CONTINUE;

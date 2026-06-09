@@ -26,8 +26,8 @@ public class MatchService {
         if (isPrivate) return false;
         if (mode == null) return true;
         String m = mode.toLowerCase();
-        if (m.startsWith("ffa_") || m.equals("ffa")) return false;
-        if (m.startsWith("coop_") || m.equals("coop")) return false;
+        if (m.startsWith("ffa_")) return false;
+        if (m.startsWith("coop_")) return false;
         return true;
     }
 

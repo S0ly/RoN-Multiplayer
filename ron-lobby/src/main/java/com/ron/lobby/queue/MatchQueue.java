@@ -56,9 +56,9 @@ public class MatchQueue implements Listener {
     private String pendingMode = null;
     private int transferTimeoutTask = -1;
 
-    public record ModeOption(String name, int minPlayers, int maxPlayers) {}
+    public record ModeOption(String name, int players) {}
     public record MapOption(String folder, String name, List<ModeOption> modes) {}
-    public record CombinedOption(String mapFolder, String mapName, String modeName, int minPlayers) {}
+    public record CombinedOption(String mapFolder, String mapName, String modeName, int players) {}
 
     // Server capabilities
     private int minPlayers = 2;
@@ -350,13 +350,14 @@ public class MatchQueue implements Listener {
             return;
         }
         int size = pendingPlayers.size();
-        if (choice.minPlayers() > 0 && size < choice.minPlayers()) {
+        if (choice.players() > 0 && size != choice.players()) {
             broadcastToPlayers(pendingPlayers,
-                    ChatColor.RED + "Not enough players for " + choice.modeName() + " — match cancelled.");
+                    ChatColor.RED + "Player count changed (" + size + " queued, " + choice.players()
+                            + " required for " + choice.modeName() + ") — match cancelled.");
             cancelPendingMatch();
             return;
         }
-        pendingMin = choice.minPlayers();
+        pendingMin = choice.players();
         pendingMapName = choice.mapName();
         pendingMode = choice.modeName();
         String mapFolder = choice.mapFolder() != null ? choice.mapFolder() : "random";

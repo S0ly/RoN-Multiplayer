@@ -206,8 +206,7 @@ public class MessageHandler {
                         for (InstanceTracker.ModeInfo mode : m.compatibleModes()) {
                             JsonObject modeObj = new JsonObject();
                             modeObj.addProperty("name", mode.name());
-                            modeObj.addProperty("minPlayers", mode.minPlayers());
-                            modeObj.addProperty("maxPlayers", mode.maxPlayers());
+                            modeObj.addProperty("players", mode.players());
                             modesArr.add(modeObj);
                         }
                         obj.add("modes", modesArr);

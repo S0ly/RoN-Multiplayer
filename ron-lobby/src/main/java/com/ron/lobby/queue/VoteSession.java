@@ -56,8 +56,8 @@ class VoteSession {
             if (modes.size() <= 1) {
                 ModeOption picked = modes.isEmpty() ? null : modes.get(0);
                 String mode = picked != null ? picked.name() : null;
-                int min = picked != null ? picked.minPlayers() : 0;
-                CombinedOption chosen = new CombinedOption(only.folder(), only.name(), mode, min);
+                int players = picked != null ? picked.players() : 0;
+                CombinedOption chosen = new CombinedOption(only.folder(), only.name(), mode, players);
                 broadcast(voters, ChatColor.GREEN + "Selected: " + describe(chosen));
                 onWinner.accept(chosen);
                 return;
@@ -71,7 +71,7 @@ class VoteSession {
         broadcast(voters, ChatColor.YELLOW + "Vote for a map! Type "
                 + ChatColor.WHITE + "/vote <number> [mode]"
                 + ChatColor.YELLOW + "  (" + voteSeconds + "s)");
-        broadcast(voters, ChatColor.GRAY + "Example: /vote 1 ffa_2-4  — pick map #1 with mode ffa_2-4");
+        broadcast(voters, ChatColor.GRAY + "Example: /vote 1 ffa_4  — pick map #1 with mode ffa_4");
         for (int i = 0; i < mapOptions.size(); i++) {
             broadcast(voters, ChatColor.WHITE + "  " + (i + 1) + ". " + describeMap(mapOptions.get(i)));
         }
@@ -136,8 +136,8 @@ class VoteSession {
                 }
             }
             String chosenMode = matched != null ? matched.name() : null;
-            int min = matched != null ? matched.minPlayers() : 0;
-            resolved = new CombinedOption(map.folder(), map.name(), chosenMode, min);
+            int players = matched != null ? matched.players() : 0;
+            resolved = new CombinedOption(map.folder(), map.name(), chosenMode, players);
         }
 
         votes.put(uuid, resolved);
@@ -199,8 +199,8 @@ class VoteSession {
             ModeOption picked = modes.isEmpty() ? null
                     : modes.get(ThreadLocalRandom.current().nextInt(modes.size()));
             String mode = picked != null ? picked.name() : null;
-            int min = picked != null ? picked.minPlayers() : 0;
-            winner = new CombinedOption(map.folder(), map.name(), mode, min);
+            int players = picked != null ? picked.players() : 0;
+            winner = new CombinedOption(map.folder(), map.name(), mode, players);
         } else {
             Map<CombinedOption, Integer> counts = new HashMap<>();
             for (CombinedOption v : votes.values()) counts.merge(v, 1, Integer::sum);

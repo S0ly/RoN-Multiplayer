@@ -10,9 +10,6 @@ import java.util.Map;
 
 public class InstanceStateManager {
 
-    public static final int MIN_PLAYERS_PER_MATCH = 2;
-    public static final int MAX_PLAYERS_PER_MATCH = 8;
-
     // Fixed team modes: name -> total players (teamCount is always 2)
     private static final Map<String, Integer> TEAM_MODES = Map.of(
             "1v1", 2,
@@ -21,12 +18,33 @@ public class InstanceStateManager {
             "4v4", 8
     );
 
+    // Per-size FFA modes: name -> player count (each player is their own team)
+    private static final Map<String, Integer> FFA_MODES = Map.of(
+            "ffa_3", 3,
+            "ffa_4", 4,
+            "ffa_5", 5,
+            "ffa_6", 6,
+            "ffa_7", 7,
+            "ffa_8", 8
+    );
+
+    // Per-size coop modes: name -> player count (everyone on one team)
+    private static final Map<String, Integer> COOP_MODES = Map.of(
+            "coop_2", 2,
+            "coop_3", 3,
+            "coop_4", 4,
+            "coop_5", 5,
+            "coop_6", 6,
+            "coop_7", 7,
+            "coop_8", 8
+    );
+
     private static volatile InstanceState state = InstanceState.IDLE;
     private static volatile String currentMap = "unknown";
     private static volatile String currentMode = null;
     private static final List<MapInfo> availableMaps = new ArrayList<>();
 
-    public record ModeInfo(String name, int minPlayers, int maxPlayers, int teamCount) {}
+    public record ModeInfo(String name, int players, int teamCount) {}
     public record MapInfo(String folder, String name, List<String> author, List<ModeInfo> modes, String defaultMode) {}
 
     public static InstanceState getState() {
@@ -64,13 +82,13 @@ public class InstanceStateManager {
             if (map.folder().equals(mapFolder) || map.name().equals(mapFolder)) {
                 for (ModeInfo m : map.modes()) {
                     if (m.name().equals(mode)) {
-                        return m.maxPlayers();
+                        return m.players();
                     }
                 }
                 // Mode not found, try default
                 for (ModeInfo m : map.modes()) {
                     if (m.name().equals(map.defaultMode())) {
-                        return m.maxPlayers();
+                        return m.players();
                     }
                 }
             }
@@ -117,52 +135,45 @@ public class InstanceStateManager {
         RonInstance.LOGGER.info("Scanned {} maps", availableMaps.size());
     }
 
-    /**
-     * Parses a range-mode name like "ffa_2-4" or "coop_2-4" → [min, max].
-     * Returns null on any malformed input, including violating the global
-     * MIN_PLAYERS_PER_MATCH / MAX_PLAYERS_PER_MATCH bounds.
-     */
-    private static int[] parseRange(String prefix, String modeName) {
-        String lower = modeName.toLowerCase();
-        if (!lower.startsWith(prefix)) return null;
-        String suffix = lower.substring(prefix.length());
-        int dash = suffix.indexOf('-');
-        if (dash <= 0 || dash == suffix.length() - 1) return null;
-        try {
-            int min = Integer.parseInt(suffix.substring(0, dash));
-            int max = Integer.parseInt(suffix.substring(dash + 1));
-            if (min < MIN_PLAYERS_PER_MATCH || max < min || max > MAX_PLAYERS_PER_MATCH) return null;
-            return new int[]{min, max};
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
+    private static final String ALLOWED_MODES_HINT =
+            "ffa_3..ffa_8, coop_2..coop_8, 1v1, 2v2, 3v3, 4v4";
 
     /**
      * Validate a single mode entry against the whitelist:
-     *   - {@code ffa_<min>-<max>} / {@code coop_<min>-<max>} with 2 ≤ min ≤ max ≤ 8
-     *   - {@code 1v1}, {@code 2v2}, {@code 3v3}, {@code 4v4} with exact 2 teams + matching player count
+     *   - {@code ffa_<n>} with {@code n} ∈ {3, 4}: each player on their own team
+     *   - {@code coop_<n>} with {@code n} ∈ {2, 3, 4}: everyone on one team
+     *   - {@code 1v1}, {@code 2v2}, {@code 3v3}, {@code 4v4}: 2 teams of N
      *
      * Returns null and logs a warning when the mode is rejected.
      */
     private static ModeInfo parseMode(String folder, String modeName, int teamCount, int totalPlayers) {
         String lower = modeName.toLowerCase();
 
-        int[] ffaRange = parseRange("ffa_", lower);
-        if (ffaRange != null) {
-            return new ModeInfo(modeName, ffaRange[0], ffaRange[1], teamCount);
+        Integer ffaPlayers = FFA_MODES.get(lower);
+        if (ffaPlayers != null) {
+            if (teamCount != ffaPlayers || totalPlayers != ffaPlayers) {
+                RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires {} solo teams of 1 player (got teams={}, players={}) — skipping",
+                        folder, modeName, ffaPlayers, teamCount, totalPlayers);
+                return null;
+            }
+            return new ModeInfo(modeName, ffaPlayers, teamCount);
         }
         if (lower.startsWith("ffa")) {
-            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid ffa mode '{}', expected 'ffa_<min>-<max>' with 2 ≤ min ≤ max ≤ 8 — skipping", folder, modeName);
+            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid ffa mode '{}', expected ffa_<n> with n in 3..8 — skipping", folder, modeName);
             return null;
         }
 
-        int[] coopRange = parseRange("coop_", lower);
-        if (coopRange != null) {
-            return new ModeInfo(modeName, coopRange[0], coopRange[1], teamCount);
+        Integer coopPlayers = COOP_MODES.get(lower);
+        if (coopPlayers != null) {
+            if (teamCount != 1 || totalPlayers != coopPlayers) {
+                RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires 1 team of {} players (got teams={}, players={}) — skipping",
+                        folder, modeName, coopPlayers, teamCount, totalPlayers);
+                return null;
+            }
+            return new ModeInfo(modeName, coopPlayers, 1);
         }
         if (lower.startsWith("coop")) {
-            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid coop mode '{}', expected 'coop_<min>-<max>' with 2 ≤ min ≤ max ≤ 8 — skipping", folder, modeName);
+            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid coop mode '{}', expected coop_<n> with n in 2..8 — skipping", folder, modeName);
             return null;
         }
 
@@ -173,10 +184,10 @@ public class InstanceStateManager {
                         folder, modeName, expectedTotal / 2, teamCount, totalPlayers);
                 return null;
             }
-            return new ModeInfo(modeName, expectedTotal, expectedTotal, 2);
+            return new ModeInfo(modeName, expectedTotal, 2);
         }
 
-        RonInstance.LOGGER.warn("rtsmap.json in {}: unsupported mode '{}' — allowed: ffa_<min>-<max>, coop_<min>-<max>, 1v1, 2v2, 3v3, 4v4", folder, modeName);
+        RonInstance.LOGGER.warn("rtsmap.json in {}: unsupported mode '{}' — allowed: {}", folder, modeName, ALLOWED_MODES_HINT);
         return null;
     }
 
