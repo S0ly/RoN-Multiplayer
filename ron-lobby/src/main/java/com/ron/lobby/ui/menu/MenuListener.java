@@ -14,6 +14,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -46,6 +47,23 @@ public class MenuListener implements Listener {
         String payload = MenuItems.readPayload(clicked);
 
         dispatch(player, (RonMenuHolder) holder, action, payload);
+    }
+
+    @EventHandler
+    public void onClose(InventoryCloseEvent event) {
+        if (!(event.getInventory().getHolder() instanceof RonMenuHolder holder)) return;
+        MenuId id = holder.menuId();
+        if (id != MenuId.VOTE && id != MenuId.VOTE_MODES) return;
+        if (!(event.getPlayer() instanceof Player player)) return;
+
+        Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE, () -> {
+            MatchQueue q = RonLobby.matchQueue;
+            if (!q.isVoteActive()) return;
+            if (q.hasVoted(player.getUniqueId())) return;
+            if (player.getOpenInventory().getTopInventory().getHolder() instanceof RonMenuHolder) return;
+            player.sendMessage(ChatColor.GRAY + "[RoN] Vote screen closed — type "
+                    + ChatColor.WHITE + "/menu vote" + ChatColor.GRAY + " to reopen.");
+        }, 1L);
     }
 
     @EventHandler

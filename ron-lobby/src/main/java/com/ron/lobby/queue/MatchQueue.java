@@ -370,6 +370,7 @@ public class MatchQueue implements Listener {
     public int getPublicQueueSize() { return publicQueue.size(); }
 
     public boolean isVoteActive() { return voteSession.isActive(); }
+    public boolean hasVoted(UUID uuid) { return voteSession.hasVoted(uuid); }
     public List<MapOption> getVoteMapOptions() { return voteSession.getMapOptions(); }
     public int getVoteSecondsRemaining() { return voteSession.getSecondsRemaining(); }
     public int getVoteTotalSeconds() { return voteSeconds; }

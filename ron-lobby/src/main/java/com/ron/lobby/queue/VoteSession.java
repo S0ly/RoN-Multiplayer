@@ -157,6 +157,10 @@ class VoteSession {
         return mapOptions != null;
     }
 
+    boolean hasVoted(UUID uuid) {
+        return votes.containsKey(uuid);
+    }
+
     List<MapOption> getMapOptions() {
         return mapOptions == null ? List.of() : List.copyOf(mapOptions);
     }
