@@ -106,6 +106,11 @@ public class MatchLifecycle {
             welcomeShown.set(false);
             RonInstance.LOGGER.info("MatchLifecycle: READYING phase ({} slots for mode={}, isCoop={}, isFFA={}, isRanked={})",
                     expectedPlayers, InstanceStateManager.getCurrentMode(), isCoop(), isFFA(), isRanked());
+            // Wipe any alliances left over from a previous match on this reused
+            // instance JVM. Otherwise a 2v2's pairings carry into the next match
+            // (e.g. a 1v1), and since team modes lock alliances they can't be
+            // disbanded. StartPos re-applies the correct alliances at game start.
+            AlliancesServerEvents.resetAllAlliances();
             runCommand("gamerule coopMode " + isCoop());
             runCommand("gamerule lockAlliances " + !isFFA());
             gracePeriods.scheduleAfter(WELCOME_DELAY_SECONDS, MatchLifecycle::showWelcomeIfNeeded);
@@ -469,6 +474,7 @@ public class MatchLifecycle {
         gracePeriods.reset();
         selections.clear();
         rankedOverride = null;
+        AlliancesServerEvents.resetAllAlliances();
 
         MatchResult.reset();
         PlayerTracker.reset();
