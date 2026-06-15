@@ -24,6 +24,8 @@ public class MatchQueue implements Listener {
 
     private static final int DEFAULT_FILL_SECONDS = 120;
     private static final int DEFAULT_VOTE_SECONDS = 60;
+    /** Re-queue players if the assigned instance never reports ready (2 minutes, in ticks). */
+    private static final long TRANSFER_TIMEOUT_TICKS = 2400L;
 
     private final RonLobby plugin;
     private final VoteSession voteSession;
@@ -360,7 +362,7 @@ public class MatchQueue implements Listener {
                 }
                 cancelPendingMatch();
             }
-        }, 2400L).getTaskId();
+        }, TRANSFER_TIMEOUT_TICKS).getTaskId();
     }
 
     public void onNoMatchFound() {

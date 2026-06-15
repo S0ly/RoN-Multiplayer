@@ -123,15 +123,6 @@ public class MatchService {
         return Optional.of(m);
     }
 
-    /** Update player results (winner flag + point delta) after a finished match. */
-    public void recordResults(String instance, List<MatchPlayer> updatedPlayers) {
-        Match m = activeByInstance.get(instance);
-        if (m == null) return;
-        m.players().clear();
-        m.players().addAll(updatedPlayers);
-        persistPlayers(m);
-    }
-
     /** Lobby asked us to abandon a confirmed-but-not-yet-running match. */
     public void cancelMatch(String instance) {
         awaitingReady.remove(instance);
@@ -186,12 +177,4 @@ public class MatchService {
         }
     }
 
-    private void persistPlayers(Match m) {
-        if (matchDAO == null) return;
-        try {
-            matchDAO.replacePlayers(m.id(), m.players());
-        } catch (SQLException e) {
-            logger.error("Failed to persist players for match {}", m.id(), e);
-        }
-    }
 }

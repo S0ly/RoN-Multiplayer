@@ -128,101 +128,118 @@ public class RonProxy {
     private void loadConfig() {
         Path configFile = dataDirectory.resolve("config.json");
         if (!Files.exists(configFile)) {
-            try {
-                Files.createDirectories(dataDirectory);
-                JsonObject defaultConfig = new JsonObject();
-                JsonObject instances = new JsonObject();
-
-                JsonObject inst1 = new JsonObject();
-                inst1.addProperty("rconHost", "127.0.0.1");
-                inst1.addProperty("rconPort", 25575);
-                inst1.addProperty("rconPassword", "changeme");
-                instances.add("instance01", inst1);
-
-                JsonObject inst2 = new JsonObject();
-                inst2.addProperty("rconHost", "127.0.0.1");
-                inst2.addProperty("rconPort", 25576);
-                inst2.addProperty("rconPassword", "changeme");
-                instances.add("instance02", inst2);
-
-                JsonObject dbConfig = new JsonObject();
-                dbConfig.addProperty("path", "ron.db");
-                defaultConfig.add("database", dbConfig);
-
-                defaultConfig.add("instances", instances);
-                defaultConfig.add("rankSync", RankSyncConfig.defaultStub());
-                defaultConfig.add("gameModes", ModeFilterConfig.defaultStub());
-                Files.writeString(configFile, GSON.toJson(defaultConfig));
-                logger.info("Created default config at {}", configFile);
-                logger.warn("Default RCON passwords are 'changeme' — edit config.json before exposing this proxy");
-            } catch (IOException e) {
-                logger.error("Failed to create default config", e);
-            }
+            createDefaultConfig(configFile);
         }
 
         try {
             String content = Files.readString(configFile);
             JsonObject config = GSON.fromJson(content, JsonObject.class);
 
-            // Initialize database
-            String dbPath = "ron.db";
-            if (config.has("database") && config.getAsJsonObject("database").has("path")) {
-                dbPath = config.getAsJsonObject("database").get("path").getAsString();
-            }
-            Path dbFile = dataDirectory.resolve(dbPath);
-            try {
-                database = new Database(dbFile.toString());
-                database.initialize();
-                statsDAO = new PlayerStatsDAO(database);
-                matchDAO = new MatchDAO(database);
-                logger.info("Database initialized at {}", dbFile);
-            } catch (Exception e) {
-                logger.error("Failed to initialize database", e);
-            }
-
-            RankSyncConfig syncConfig = RankSyncConfig.fromJson(config);
-            if (syncConfig.enabled && statsDAO != null) {
-                rankSyncService = new RankSyncService(syncConfig, statsDAO, logger);
-                rankSyncService.start();
-            }
-
-            // Network-wide mode switchboard. Apply before instances register so the
-            // filter is in place before the first poll fetches their maps.
-            ModeFilterConfig modeFilter = ModeFilterConfig.fromJson(config);
-            instanceTracker.setEnabledModes(modeFilter.enabledModes());
-            if (!modeFilter.present()) {
-                // Legacy config without a gameModes block: keep every mode enabled and
-                // write the full switchboard back so the operator can edit it.
-                config.add("gameModes", ModeFilterConfig.defaultStub());
-                try {
-                    Files.writeString(configFile, GSON.toJson(config));
-                    logger.info("Added default 'gameModes' switchboard to config.json (all modes enabled)");
-                } catch (IOException e) {
-                    logger.error("Failed to write 'gameModes' block to config.json", e);
-                }
-            } else {
-                logger.info("Mode switchboard: {} modes enabled network-wide", modeFilter.enabledModes().size());
-            }
-
-            if (config.has("instances")) {
-                for (var entry : config.getAsJsonObject("instances").entrySet()) {
-                    JsonObject inst = entry.getValue().getAsJsonObject();
-                    if (!inst.has("rconHost") || !inst.has("rconPort") || !inst.has("rconPassword")) {
-                        logger.warn("Instance '{}' missing required fields (rconHost, rconPort, rconPassword) — skipping", entry.getKey());
-                        continue;
-                    }
-                    instanceTracker.addInstance(
-                        entry.getKey(),
-                        inst.get("rconHost").getAsString(),
-                        inst.get("rconPort").getAsInt(),
-                        inst.get("rconPassword").getAsString()
-                    );
-                    logger.info("Configured instance: {} ({}:{})",
-                        entry.getKey(), inst.get("rconHost").getAsString(), inst.get("rconPort").getAsInt());
-                }
-            }
+            initDatabase(config);
+            initRankSync(config);
+            applyModeFilter(config, configFile);
+            registerInstances(config);
         } catch (IOException e) {
             logger.error("Failed to load config", e);
+        }
+    }
+
+    private void createDefaultConfig(Path configFile) {
+        try {
+            Files.createDirectories(dataDirectory);
+            JsonObject defaultConfig = new JsonObject();
+            JsonObject instances = new JsonObject();
+
+            JsonObject inst1 = new JsonObject();
+            inst1.addProperty("rconHost", "127.0.0.1");
+            inst1.addProperty("rconPort", 25575);
+            inst1.addProperty("rconPassword", "changeme");
+            instances.add("instance01", inst1);
+
+            JsonObject inst2 = new JsonObject();
+            inst2.addProperty("rconHost", "127.0.0.1");
+            inst2.addProperty("rconPort", 25576);
+            inst2.addProperty("rconPassword", "changeme");
+            instances.add("instance02", inst2);
+
+            JsonObject dbConfig = new JsonObject();
+            dbConfig.addProperty("path", "ron.db");
+            defaultConfig.add("database", dbConfig);
+
+            defaultConfig.add("instances", instances);
+            defaultConfig.add("rankSync", RankSyncConfig.defaultStub());
+            defaultConfig.add("gameModes", ModeFilterConfig.defaultStub());
+            Files.writeString(configFile, GSON.toJson(defaultConfig));
+            logger.info("Created default config at {}", configFile);
+            logger.warn("Default RCON passwords are 'changeme' — edit config.json before exposing this proxy");
+        } catch (IOException e) {
+            logger.error("Failed to create default config", e);
+        }
+    }
+
+    private void initDatabase(JsonObject config) {
+        String dbPath = "ron.db";
+        if (config.has("database") && config.getAsJsonObject("database").has("path")) {
+            dbPath = config.getAsJsonObject("database").get("path").getAsString();
+        }
+        Path dbFile = dataDirectory.resolve(dbPath);
+        try {
+            database = new Database(dbFile.toString());
+            database.initialize();
+            statsDAO = new PlayerStatsDAO(database);
+            matchDAO = new MatchDAO(database);
+            logger.info("Database initialized at {}", dbFile);
+        } catch (Exception e) {
+            logger.error("Failed to initialize database", e);
+        }
+    }
+
+    private void initRankSync(JsonObject config) {
+        RankSyncConfig syncConfig = RankSyncConfig.fromJson(config);
+        if (syncConfig.enabled && statsDAO != null) {
+            rankSyncService = new RankSyncService(syncConfig, statsDAO, logger);
+            rankSyncService.start();
+        }
+    }
+
+    /**
+     * Apply the network-wide mode switchboard. Called before instances register so the
+     * filter is in place before the first poll fetches their maps.
+     */
+    private void applyModeFilter(JsonObject config, Path configFile) {
+        ModeFilterConfig modeFilter = ModeFilterConfig.fromJson(config);
+        instanceTracker.setEnabledModes(modeFilter.enabledModes());
+        if (!modeFilter.present()) {
+            // Legacy config without a gameModes block: keep every mode enabled and
+            // write the full switchboard back so the operator can edit it.
+            config.add("gameModes", ModeFilterConfig.defaultStub());
+            try {
+                Files.writeString(configFile, GSON.toJson(config));
+                logger.info("Added default 'gameModes' switchboard to config.json (all modes enabled)");
+            } catch (IOException e) {
+                logger.error("Failed to write 'gameModes' block to config.json", e);
+            }
+        } else {
+            logger.info("Mode switchboard: {} modes enabled network-wide", modeFilter.enabledModes().size());
+        }
+    }
+
+    private void registerInstances(JsonObject config) {
+        if (!config.has("instances")) return;
+        for (var entry : config.getAsJsonObject("instances").entrySet()) {
+            JsonObject inst = entry.getValue().getAsJsonObject();
+            if (!inst.has("rconHost") || !inst.has("rconPort") || !inst.has("rconPassword")) {
+                logger.warn("Instance '{}' missing required fields (rconHost, rconPort, rconPassword) — skipping", entry.getKey());
+                continue;
+            }
+            instanceTracker.addInstance(
+                entry.getKey(),
+                inst.get("rconHost").getAsString(),
+                inst.get("rconPort").getAsInt(),
+                inst.get("rconPassword").getAsString()
+            );
+            logger.info("Configured instance: {} ({}:{})",
+                entry.getKey(), inst.get("rconHost").getAsString(), inst.get("rconPort").getAsInt());
         }
     }
 }

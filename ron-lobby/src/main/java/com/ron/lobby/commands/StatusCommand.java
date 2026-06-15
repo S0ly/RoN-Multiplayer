@@ -28,7 +28,6 @@ public class StatusCommand implements CommandExecutor {
 
         sender.sendMessage(ChatColor.GRAY + "[RoN] Fetching server status...");
 
-        // Request fresh info from proxy with callback
         LobbyMessaging.requestServerInfo(info -> {
             if (info == null) {
                 sender.sendMessage(ChatColor.RED + "[RoN] No server info available yet. Try again in a moment.");
@@ -39,7 +38,6 @@ public class StatusCommand implements CommandExecutor {
             sender.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "=== RoN Server Status ===");
             sender.sendMessage("");
 
-            // Global stats
             if (!info.has("availableInstances") || !info.has("occupiedInstances") ||
                     !info.has("minPlayers") || !info.has("maxPlayers")) {
                 sender.sendMessage(ChatColor.RED + "[RoN] Server info is incomplete. Try again later.");
@@ -54,11 +52,9 @@ public class StatusCommand implements CommandExecutor {
             sender.sendMessage(ChatColor.WHITE + "Players: " +
                     info.get("minPlayers").getAsInt() + "-" + info.get("maxPlayers").getAsInt() + "p");
 
-            // Queue info
             sender.sendMessage(ChatColor.WHITE + "Queue: " + ChatColor.YELLOW + RonLobby.matchQueue.getPublicQueueSize() + " players");
             sender.sendMessage("");
 
-            // Running matches
             if (info.has("matches") && info.getAsJsonObject("matches").size() > 0) {
                 sender.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "Running Matches:");
                 for (Map.Entry<String, JsonElement> entry : info.getAsJsonObject("matches").entrySet()) {
@@ -87,7 +83,6 @@ public class StatusCommand implements CommandExecutor {
                 sender.sendMessage(ChatColor.GRAY + "No matches running.");
             }
 
-            // Instance capabilities
             sender.sendMessage("");
             sender.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "Instances:");
             if (info.has("instances")) {

@@ -24,6 +24,9 @@ public class MatchEndHandler {
     private static MinecraftServer serverInstance;
     private static final AtomicBoolean matchEnded = new AtomicBoolean(false);
 
+    /** Delay before flipping to FINISHED so players can read the end-of-match summary. */
+    private static final int FINISHED_STATE_DELAY_SECONDS = 10;
+
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
         serverInstance = event.getServer();
@@ -52,8 +55,7 @@ public class MatchEndHandler {
             }
         }
 
-        boolean ranked = MatchLifecycle.isRanked();
-        MatchResult result = new MatchResult(drawResults, List.of(), InstanceStateManager.getCurrentMap(), ranked);
+        MatchResult result = new MatchResult(drawResults, List.of());
         MatchResult.setCurrent(result);
 
         broadcast(Component.literal("=== Match Draw ===").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
@@ -65,7 +67,7 @@ public class MatchEndHandler {
         scheduler.schedule(() -> {
             RonInstance.LOGGER.info("Setting state to FINISHED after draw");
             InstanceStateManager.setState(InstanceState.FINISHED);
-        }, 10, TimeUnit.SECONDS);
+        }, FINISHED_STATE_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
     public static void onVictory(List<String> winners, List<String> losers) {
@@ -116,7 +118,7 @@ public class MatchEndHandler {
             }
         }
 
-        MatchResult result = new MatchResult(winnerResults, loserResults, InstanceStateManager.getCurrentMap(), ranked);
+        MatchResult result = new MatchResult(winnerResults, loserResults);
         MatchResult.setCurrent(result);
 
         broadcastResults(result, ranked);
@@ -124,7 +126,7 @@ public class MatchEndHandler {
         scheduler.schedule(() -> {
             RonInstance.LOGGER.info("Setting state to FINISHED after match end");
             InstanceStateManager.setState(InstanceState.FINISHED);
-        }, 10, TimeUnit.SECONDS);
+        }, FINISHED_STATE_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
     private static String resolveUuid(String name) {

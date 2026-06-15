@@ -16,6 +16,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.logging.Level;
 
 public class LobbyMessaging implements PluginMessageListener {
 
@@ -94,7 +95,7 @@ public class LobbyMessaging implements PluginMessageListener {
                 }
             }
         } catch (Exception e) {
-            RonLobby.INSTANCE.getLogger().severe("Failed to handle match response: " + e.getMessage());
+            RonLobby.INSTANCE.getLogger().log(Level.SEVERE, "Failed to handle match response", e);
         }
     }
 

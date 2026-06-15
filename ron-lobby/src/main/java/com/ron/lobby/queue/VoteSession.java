@@ -26,6 +26,11 @@ import com.ron.lobby.queue.MatchQueue.ModeOption;
  */
 class VoteSession {
 
+    /** Under this many seconds, the timer announces every second; it also caps the early wrap-up. */
+    private static final int FINAL_COUNTDOWN_SECONDS = 10;
+    /** Above the final countdown, announce remaining time on this cadence. */
+    private static final int REMINDER_INTERVAL_SECONDS = 15;
+
     private final RonLobby plugin;
 
     private List<MapOption> mapOptions = null;
@@ -81,7 +86,8 @@ class VoteSession {
             @Override
             public void run() {
                 secondsRemaining--;
-                if (secondsRemaining > 0 && (secondsRemaining <= 10 || secondsRemaining % 15 == 0)) {
+                if (secondsRemaining > 0 && (secondsRemaining <= FINAL_COUNTDOWN_SECONDS
+                        || secondsRemaining % REMINDER_INTERVAL_SECONDS == 0)) {
                     broadcast(voters, "Vote: " + secondsRemaining + "s remaining...");
                 }
                 if (secondsRemaining <= 0) {
@@ -112,32 +118,9 @@ class VoteSession {
         if (choice == randomIdx) {
             resolved = new CombinedOption(null, "Random", null, 0);
         } else {
-            MapOption map = mapOptions.get(choice - 1);
-            List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
-            ModeOption matched;
-            if (modes.isEmpty()) {
-                matched = null;
-            } else if (mode == null || mode.isBlank()) {
-                if (modes.size() == 1) {
-                    matched = modes.get(0);
-                } else {
-                    tellPlayer(uuid, ChatColor.RED + "[RoN] " + map.name()
-                            + " has multiple modes — specify one: " + modeList(modes));
-                    return;
-                }
-            } else {
-                matched = modes.stream()
-                        .filter(m -> m.name().equalsIgnoreCase(mode))
-                        .findFirst().orElse(null);
-                if (matched == null) {
-                    tellPlayer(uuid, ChatColor.RED + "[RoN] Mode '" + mode + "' not available for "
-                            + map.name() + ". Available: " + modeList(modes));
-                    return;
-                }
-            }
-            String chosenMode = matched != null ? matched.name() : null;
-            int players = matched != null ? matched.players() : 0;
-            resolved = new CombinedOption(map.folder(), map.name(), chosenMode, players);
+            Optional<CombinedOption> picked = resolveMapVote(uuid, mapOptions.get(choice - 1), mode);
+            if (picked.isEmpty()) return; // resolveMapVote already told the player why
+            resolved = picked.get();
         }
 
         votes.put(uuid, resolved);
@@ -147,10 +130,43 @@ class VoteSession {
         MenuService.refreshVoteMenus();
         SoundEffects.voteCast(player);
 
-        if (votes.size() >= participants.size() && secondsRemaining > 10) {
-            secondsRemaining = 10;
-            broadcast(participants, ChatColor.YELLOW + "Everyone voted — wrapping up in 10s.");
+        if (votes.size() >= participants.size() && secondsRemaining > FINAL_COUNTDOWN_SECONDS) {
+            secondsRemaining = FINAL_COUNTDOWN_SECONDS;
+            broadcast(participants, ChatColor.YELLOW + "Everyone voted — wrapping up in "
+                    + FINAL_COUNTDOWN_SECONDS + "s.");
         }
+    }
+
+    /**
+     * Resolve a map-number vote into a CombinedOption, picking/validating the mode.
+     * Returns empty (after messaging the player) when the mode is ambiguous or invalid.
+     */
+    private Optional<CombinedOption> resolveMapVote(UUID uuid, MapOption map, String mode) {
+        List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
+        ModeOption matched;
+        if (modes.isEmpty()) {
+            matched = null;
+        } else if (mode == null || mode.isBlank()) {
+            if (modes.size() == 1) {
+                matched = modes.get(0);
+            } else {
+                tellPlayer(uuid, ChatColor.RED + "[RoN] " + map.name()
+                        + " has multiple modes — specify one: " + modeList(modes));
+                return Optional.empty();
+            }
+        } else {
+            matched = modes.stream()
+                    .filter(m -> m.name().equalsIgnoreCase(mode))
+                    .findFirst().orElse(null);
+            if (matched == null) {
+                tellPlayer(uuid, ChatColor.RED + "[RoN] Mode '" + mode + "' not available for "
+                        + map.name() + ". Available: " + modeList(modes));
+                return Optional.empty();
+            }
+        }
+        String chosenMode = matched != null ? matched.name() : null;
+        int players = matched != null ? matched.players() : 0;
+        return Optional.of(new CombinedOption(map.folder(), map.name(), chosenMode, players));
     }
 
     boolean isActive() {

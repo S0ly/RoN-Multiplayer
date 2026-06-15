@@ -20,7 +20,6 @@ public class QueueCommand implements CommandExecutor {
         LobbyUI.refreshScreen(player);
 
         if (args.length == 0) {
-            // /queue — join public queue
             if (RonLobby.matchQueue.isInAnyQueue(player.getUniqueId())) {
                 player.sendMessage(ChatColor.RED + "[RoN] You are already in a queue! Use /queue leave first.");
                 return true;

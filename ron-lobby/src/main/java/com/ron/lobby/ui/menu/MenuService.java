@@ -109,7 +109,7 @@ public final class MenuService {
                     && matchHasPlayer(matches.getAsJsonObject(name), viewer.getName());
 
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Status: " + statusColor(status) + status);
+            lore.add(ChatColor.GRAY + "Status: " + statusColor(status) + statusLabel(status));
             if (running && !map.isEmpty()) {
                 lore.add(ChatColor.GRAY + "Map: " + ChatColor.WHITE + map);
                 if (inst.has("spectatorCount") && inst.has("maxSpectators")) {
@@ -144,6 +144,11 @@ public final class MenuService {
             case "PREPARING", "FINISHED" -> ChatColor.GOLD;
             default -> ChatColor.RED;
         };
+    }
+
+    /** Player-facing label for an instance status — READY (loaded, awaiting players) reads as "PREPARING". */
+    private static String statusLabel(String status) {
+        return "READY".equals(status) ? "PREPARING" : status;
     }
 
     // ---------- Private Lobby ----------
@@ -191,7 +196,7 @@ public final class MenuService {
      */
     private static void renderPrivateLobby(Inventory inv, PrivateLobbyView lobby, Player player) {
         // Repaint the border first so leftover host-control items are cleared.
-        fillBorder36(inv);
+        fillBorder(inv);
         for (int s = 10; s <= 16; s++) inv.setItem(s, null);
         for (int s = 19; s <= 25; s++) inv.setItem(s, null);
 
@@ -476,27 +481,24 @@ public final class MenuService {
 
     // ---------- Vote tally helpers / live refresh ----------
 
-    private static int voteCountForMap(String mapFolder, Map<MatchQueue.CombinedOption, Integer> counts) {
+    private static int sumVotes(Map<MatchQueue.CombinedOption, Integer> counts,
+                                java.util.function.Predicate<MatchQueue.CombinedOption> match) {
         int total = 0;
         for (var e : counts.entrySet()) {
-            String f = e.getKey().mapFolder();
-            if ((mapFolder == null && f == null) || (mapFolder != null && mapFolder.equals(f))) {
-                total += e.getValue();
-            }
+            if (match.test(e.getKey())) total += e.getValue();
         }
         return total;
     }
 
+    private static int voteCountForMap(String mapFolder, Map<MatchQueue.CombinedOption, Integer> counts) {
+        return sumVotes(counts, c -> mapFolder == null
+                ? c.mapFolder() == null
+                : mapFolder.equals(c.mapFolder()));
+    }
+
     private static int voteCountForMode(String mapFolder, String modeName,
                                         Map<MatchQueue.CombinedOption, Integer> counts) {
-        int total = 0;
-        for (var e : counts.entrySet()) {
-            var c = e.getKey();
-            if (mapFolder.equals(c.mapFolder()) && modeName.equals(c.modeName())) {
-                total += e.getValue();
-            }
-        }
-        return total;
+        return sumVotes(counts, c -> mapFolder.equals(c.mapFolder()) && modeName.equals(c.modeName()));
     }
 
     /** Walks all open vote menus and rewrites their item stacks with current counts. */
@@ -681,7 +683,7 @@ public final class MenuService {
     private static void renderLeaderboard(Player player, JsonObject response) {
         RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.LEADERBOARD);
         Inventory inv = holder.createInventory(36, ChatColor.GOLD + "Top Players");
-        fillBorder36(inv);
+        fillBorder(inv);
 
         inv.setItem(27, MenuItems.back());
 
@@ -740,23 +742,19 @@ public final class MenuService {
 
     // ---------- Helpers ----------
 
+    /** Fill a full border (top + bottom rows, left + right columns) for any inventory size. */
     private static void fillBorder(Inventory inv) {
-        // 27-slot border: rows 0 and 2 + slots 9, 17
         ItemStack pane = MenuItems.border();
-        for (int i = 0; i < 9; i++) inv.setItem(i, pane);
-        for (int i = 18; i < 27; i++) inv.setItem(i, pane);
-        inv.setItem(9, pane);
-        inv.setItem(17, pane);
-    }
-
-    private static void fillBorder36(Inventory inv) {
-        ItemStack pane = MenuItems.border();
-        for (int i = 0; i < 9; i++) inv.setItem(i, pane);
-        for (int i = 27; i < 36; i++) inv.setItem(i, pane);
-        inv.setItem(9, pane);
-        inv.setItem(17, pane);
-        inv.setItem(18, pane);
-        inv.setItem(26, pane);
+        int size = inv.getSize();
+        int rows = size / 9;
+        for (int col = 0; col < 9; col++) {
+            inv.setItem(col, pane);
+            inv.setItem(size - 9 + col, pane);
+        }
+        for (int row = 1; row < rows - 1; row++) {
+            inv.setItem(row * 9, pane);
+            inv.setItem(row * 9 + 8, pane);
+        }
     }
 
     /**

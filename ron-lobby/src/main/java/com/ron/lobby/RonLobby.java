@@ -18,6 +18,9 @@ public class RonLobby extends JavaPlugin {
     public static RonLobby INSTANCE;
     public static MatchQueue matchQueue;
 
+    /** Interval for sweeping expired messaging callbacks (60 seconds, in ticks). */
+    private static final long CALLBACK_CLEANUP_INTERVAL_TICKS = 1200L;
+
     @Override
     public void onEnable() {
         INSTANCE = this;
@@ -32,26 +35,22 @@ public class RonLobby extends JavaPlugin {
         MatchQueue.setUiSettings(uiSettings);
         MenuService.setSettings(uiSettings);
 
-        // Initialize queue
         matchQueue = new MatchQueue(this);
         matchQueue.configureTimings(
             getConfig().getInt("queue.fill-seconds", 120),
             getConfig().getInt("queue.vote-seconds", 60)
         );
 
-        // Register plugin messaging channels
         getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.TRANSFER);
         getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.MATCH);
         LobbyMessaging listener = new LobbyMessaging();
         getServer().getMessenger().registerIncomingPluginChannel(this, Channels.MATCH, listener);
 
-        // Register events
         getServer().getPluginManager().registerEvents(new VoidWorldSetup(), this);
         getServer().getPluginManager().registerEvents(matchQueue, this);
         getServer().getPluginManager().registerEvents(new MenuListener(), this);
         getServer().getPluginManager().registerEvents(new ChatPrompt(), this);
 
-        // Register commands
         CommandExecutor disabled = (sender, cmd, label, args) -> {
             sender.sendMessage(ChatColor.YELLOW + "[RoN] Chat commands are disabled. Use /menu.");
             return true;
@@ -67,8 +66,8 @@ public class RonLobby extends JavaPlugin {
         getCommand("ronstatus").setExecutor(new StatusCommand()); // OP tool — always on
         getCommand("menu").setExecutor(new MenuCommand());
 
-        // Periodic cleanup of stale messaging callbacks (every 60s)
-        getServer().getScheduler().runTaskTimer(this, LobbyMessaging::cleanupStaleCallbacks, 1200L, 1200L);
+        getServer().getScheduler().runTaskTimer(this, LobbyMessaging::cleanupStaleCallbacks,
+                CALLBACK_CLEANUP_INTERVAL_TICKS, CALLBACK_CLEANUP_INTERVAL_TICKS);
 
         getLogger().info("RoN Lobby enabled");
     }

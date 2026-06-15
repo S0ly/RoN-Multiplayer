@@ -15,20 +15,14 @@ public class MatchResult {
 
     private final List<PlayerResult> winners;
     private final List<PlayerResult> losers;
-    private final String map;
-    private final boolean ranked;
 
-    public MatchResult(List<PlayerResult> winners, List<PlayerResult> losers, String map, boolean ranked) {
+    public MatchResult(List<PlayerResult> winners, List<PlayerResult> losers) {
         this.winners = winners;
         this.losers = losers;
-        this.map = map;
-        this.ranked = ranked;
     }
 
     public List<PlayerResult> getWinners() { return winners; }
     public List<PlayerResult> getLosers() { return losers; }
-    public String getMap() { return map; }
-    public boolean isRanked() { return ranked; }
 
     public static MatchResult getCurrent() { return current; }
     public static void setCurrent(MatchResult result) { current = result; }

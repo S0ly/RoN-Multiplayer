@@ -235,41 +235,42 @@ public class InstanceTracker {
             sendPlayerScores(name, payload.scores());
         }
         if (payload.mode() != null && shouldSetMode(name, payload.mode())) {
-            try {
-                sendRconCommand(name, "ron-setmode " + payload.mode());
-                logger.info("[{}] Set mode to: {}", name, payload.mode());
-            } catch (Exception e) {
-                logger.error("[{}] Failed to set mode: {}", name, payload.mode(), e);
-            }
+            // A missing mode is a hard failure — the match would start on the wrong setup.
+            applyRconSetting(name, "ron-setmode " + payload.mode(),
+                    "Set mode to: " + payload.mode(), "Failed to set mode: " + payload.mode(), true);
         }
         if (payload.isPrivate()) {
-            try {
-                sendRconCommand(name, "ron-setprivate true");
-                logger.info("[{}] Marked as private match", name);
-            } catch (Exception e) {
-                logger.error("[{}] Failed to set private flag", name, e);
+            applyRconSetting(name, "ron-setprivate true",
+                    "Marked as private match", "Failed to set private flag", true);
+        }
+        // The flags below are best-effort — an older instance may not know these commands.
+        applyRconSetting(name, "ron-setranked " + payload.ranked(),
+                "Ranked: " + payload.ranked(),
+                "Failed to set ranked flag (instance may be on old version)", false);
+        applyRconSetting(name, "ron-setalliancelock " + payload.lockAlliances(),
+                "Alliance lock: " + payload.lockAlliances(),
+                "Failed to set alliance lock (instance may be on old version)", false);
+        applyRconSetting(name, "ron-setfog " + payload.fogOfWar(),
+                "Fog of war: " + payload.fogOfWar(),
+                "Failed to set fog of war (instance may be on old version)", false);
+    }
+
+    /**
+     * Send one fire-and-forget RCON setting command, logging success/failure.
+     * {@code critical} commands log failures at error level with a stack trace;
+     * non-critical ones (tolerated on older instances) log a warning.
+     */
+    private void applyRconSetting(String name, String command,
+                                  String successLog, String failureLog, boolean critical) {
+        try {
+            sendRconCommand(name, command);
+            logger.info("[{}] {}", name, successLog);
+        } catch (Exception e) {
+            if (critical) {
+                logger.error("[{}] {}", name, failureLog, e);
+            } else {
+                logger.warn("[{}] {}: {}", name, failureLog, e.getMessage());
             }
-        }
-        // Proxy-owned ranked decision — overrides instance's heuristic.
-        try {
-            sendRconCommand(name, "ron-setranked " + payload.ranked());
-            logger.info("[{}] Ranked: {}", name, payload.ranked());
-        } catch (Exception e) {
-            logger.warn("[{}] Failed to set ranked flag (instance may be on old version): {}", name, e.getMessage());
-        }
-        // Alliance locking (default locked, host may unlock private FFA).
-        try {
-            sendRconCommand(name, "ron-setalliancelock " + payload.lockAlliances());
-            logger.info("[{}] Alliance lock: {}", name, payload.lockAlliances());
-        } catch (Exception e) {
-            logger.warn("[{}] Failed to set alliance lock (instance may be on old version): {}", name, e.getMessage());
-        }
-        // Fog of war (default disabled, host may enable in private lobby).
-        try {
-            sendRconCommand(name, "ron-setfog " + payload.fogOfWar());
-            logger.info("[{}] Fog of war: {}", name, payload.fogOfWar());
-        } catch (Exception e) {
-            logger.warn("[{}] Failed to set fog of war (instance may be on old version): {}", name, e.getMessage());
         }
     }
 
@@ -429,7 +430,9 @@ public class InstanceTracker {
                 InstanceState state = obj.has("state") ? InstanceState.parse(obj.get("state").getAsString()) : null;
                 String reason = obj.has("reason") ? obj.get("reason").getAsString() : null;
                 return new ResetResult(ok, state, reason);
-            } catch (Exception ignored) { }
+            } catch (Exception ignored) {
+                // Malformed JSON — fall through to the legacy plain-text handling below.
+            }
         }
         // Legacy plain-text response — treat any non-empty success as ok with IDLE.
         if (trimmed.toLowerCase().contains("idle")) {
@@ -447,19 +450,22 @@ public class InstanceTracker {
         InstanceState prevState = prev != null ? prev.state : InstanceState.OFFLINE;
         if (prevState == newState) return;
 
-        InstanceInfo updated = prev != null
-            ? new InstanceInfo(newState,
-                newState == InstanceState.IDLE ? "" : prev.currentMap,
-                newState == InstanceState.IDLE ? 0 : prev.rtsPlayers,
-                newState == InstanceState.IDLE ? 0 : prev.spectatorCount,
-                newState == InstanceState.IDLE ? List.of() : prev.playerNames,
-                newState == InstanceState.IDLE ? 0 : prev.gameSeconds,
-                prev.maps,
-                newState == InstanceState.IDLE ? null : prev.matchResult)
-            : new InstanceInfo(newState, "", 0, 0, List.of(), 0, List.of(), null);
-        instances.put(instanceName, updated);
+        instances.put(instanceName, committedInfo(newState, prev));
         logger.info("[{}] {} -> {} (committed)", instanceName, prevState, newState);
         handleStateTransition(instanceName, configs.get(instanceName), prevState, newState, null, false);
+    }
+
+    /**
+     * Build the InstanceInfo for a committed state change: IDLE wipes the match data (map,
+     * players, result) while keeping the cached map list; any other state carries prev over.
+     */
+    private InstanceInfo committedInfo(InstanceState newState, InstanceInfo prev) {
+        if (prev == null || newState == InstanceState.IDLE) {
+            return new InstanceInfo(newState, "", 0, 0, List.of(), 0,
+                prev != null ? prev.maps : List.of(), null);
+        }
+        return new InstanceInfo(newState, prev.currentMap, prev.rtsPlayers, prev.spectatorCount,
+            prev.playerNames, prev.gameSeconds, prev.maps, prev.matchResult);
     }
 
     public boolean loadMap(String instanceName, String mapFolder) {
@@ -554,25 +560,23 @@ public class InstanceTracker {
 
             for (MapInfo map : info.maps) {
                 if (!map.folder().equals(mapFolder)) continue;
-
-                // Check if the map has a compatible mode
-                for (ModeInfo m : map.modes()) {
-                    if (mode != null && m.name().equals(mode) && playerCount == m.players()) {
-                        return Optional.of(new MatchResult(name, map.folder(), mode));
-                    }
-                }
-
-                // If no specific mode requested, find any compatible mode
-                if (mode == null) {
-                    for (ModeInfo m : map.modes()) {
-                        if (playerCount == m.players()) {
-                            return Optional.of(new MatchResult(name, map.folder(), m.name()));
-                        }
-                    }
+                Optional<ModeInfo> m = findCompatibleMode(map, playerCount, mode);
+                if (m.isPresent()) {
+                    return Optional.of(new MatchResult(name, map.folder(), m.get().name()));
                 }
             }
         }
         return findMatch(playerCount, mode);
+    }
+
+    /** First mode on this map matching the player count (and the requested mode name, if one is given). */
+    private static Optional<ModeInfo> findCompatibleMode(MapInfo map, int playerCount, String modeName) {
+        for (ModeInfo m : map.modes()) {
+            if (playerCount == m.players() && (modeName == null || m.name().equals(modeName))) {
+                return Optional.of(m);
+            }
+        }
+        return Optional.empty();
     }
 
     /**

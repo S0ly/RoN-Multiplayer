@@ -35,7 +35,6 @@ public class ReconnectHandler {
     public void onServerPostConnect(ServerPostConnectEvent event) {
         Player player = event.getPlayer();
 
-        // Only act if player landed on lobby
         String currentServer = player.getCurrentServer()
                 .map(conn -> conn.getServerInfo().getName())
                 .orElse("");
@@ -44,10 +43,9 @@ public class ReconnectHandler {
         String activeInstance = activeMatchTracker.getActiveInstance(player.getUniqueId());
         if (activeInstance == null) return;
 
-        // Verify instance is still RUNNING
         var instances = instanceTracker.getAllInstances();
         var info = instances.get(activeInstance);
-        if (info == null || (!"RUNNING".equals(info.state()) && !"READY".equals(info.state()))) {
+        if (info == null || !info.state().isJoinable()) {
             activeMatchTracker.removePlayer(player.getUniqueId());
             return;
         }

@@ -20,4 +20,9 @@ public enum InstanceState {
     public boolean isAvailableForMatch() {
         return this == IDLE || this == READY;
     }
+
+    /** True if a player may (re)join a match on an instance in this state — it is READY or RUNNING. */
+    public boolean isJoinable() {
+        return this == READY || this == RUNNING;
+    }
 }

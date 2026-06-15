@@ -53,7 +53,7 @@ public class RejoinCommand implements SimpleCommand {
 
         var instances = instanceTracker.getAllInstances();
         var info = instances.get(activeInstance);
-        if (info == null || (!"RUNNING".equals(info.state()) && !"READY".equals(info.state()))) {
+        if (info == null || !info.state().isJoinable()) {
             player.sendMessage(Component.text("[RoN] Your match is no longer active.").color(NamedTextColor.RED));
             activeMatchTracker.removePlayer(uuid);
             return;

@@ -19,10 +19,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.function.Consumer;
 
 public class RonCommands {
 
     private static final Gson gson = new Gson();
+
+    /** Grace delay before halting the server for a map swap, so the success message reaches the client. */
+    private static final long SERVER_HALT_DELAY_MS = 1000L;
 
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
@@ -86,29 +90,8 @@ public class RonCommands {
             MatchResult result = MatchResult.getCurrent();
             if (result != null && InstanceStateManager.getState() == InstanceState.FINISHED) {
                 JsonObject matchResult = new JsonObject();
-
-                JsonArray winnersArr = new JsonArray();
-                for (MatchResult.PlayerResult p : result.getWinners()) {
-                    JsonObject pj = new JsonObject();
-                    pj.addProperty("uuid", p.uuid());
-                    pj.addProperty("name", p.name());
-                    pj.addProperty("pointsBefore", p.pointsBefore());
-                    pj.addProperty("pointsChange", p.pointsChange());
-                    winnersArr.add(pj);
-                }
-                matchResult.add("winners", winnersArr);
-
-                JsonArray losersArr = new JsonArray();
-                for (MatchResult.PlayerResult p : result.getLosers()) {
-                    JsonObject pj = new JsonObject();
-                    pj.addProperty("uuid", p.uuid());
-                    pj.addProperty("name", p.name());
-                    pj.addProperty("pointsBefore", p.pointsBefore());
-                    pj.addProperty("pointsChange", p.pointsChange());
-                    losersArr.add(pj);
-                }
-                matchResult.add("losers", losersArr);
-
+                matchResult.add("winners", playerResultsArray(result.getWinners()));
+                matchResult.add("losers", playerResultsArray(result.getLosers()));
                 status.add("matchResult", matchResult);
             }
 
@@ -174,8 +157,10 @@ public class RonCommands {
                     net.minecraft.server.MinecraftServer srv = context.getSource().getServer();
                     new Thread(() -> {
                         try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException ignored) {}
+                            Thread.sleep(SERVER_HALT_DELAY_MS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
                         RonInstance.LOGGER.info("Stopping server for map swap");
                         srv.halt(false);
                     }).start();
@@ -224,61 +209,11 @@ public class RonCommands {
             )
         );
 
-        // /ron-setprivate <true|false> — flag this match as private (unranked)
-        dispatcher.register(Commands.literal("ron-setprivate")
-            .then(Commands.argument("value", StringArgumentType.word())
-                .executes(context -> {
-                    String value = StringArgumentType.getString(context, "value");
-                    boolean isPrivate = "true".equalsIgnoreCase(value) || "1".equals(value);
-                    MatchLifecycle.setPrivateMatch(isPrivate);
-                    context.getSource().sendSuccess(
-                        () -> Component.literal("Private match: " + isPrivate), true);
-                    return 1;
-                })
-            )
-        );
-
-        // /ron-setranked <true|false> — proxy-decided ranked flag (overrides local heuristic)
-        dispatcher.register(Commands.literal("ron-setranked")
-            .then(Commands.argument("value", StringArgumentType.word())
-                .executes(context -> {
-                    String value = StringArgumentType.getString(context, "value");
-                    boolean ranked = "true".equalsIgnoreCase(value) || "1".equals(value);
-                    MatchLifecycle.setRankedOverride(ranked);
-                    context.getSource().sendSuccess(
-                        () -> Component.literal("Ranked: " + ranked), true);
-                    return 1;
-                })
-            )
-        );
-
-        // /ron-setalliancelock <true|false> — proxy/host-decided alliance locking
-        dispatcher.register(Commands.literal("ron-setalliancelock")
-            .then(Commands.argument("value", StringArgumentType.word())
-                .executes(context -> {
-                    String value = StringArgumentType.getString(context, "value");
-                    boolean lock = "true".equalsIgnoreCase(value) || "1".equals(value);
-                    MatchLifecycle.setAllianceLockOverride(lock);
-                    context.getSource().sendSuccess(
-                        () -> Component.literal("Alliance lock: " + lock), true);
-                    return 1;
-                })
-            )
-        );
-
-        // /ron-setfog <true|false> — proxy/host-decided fog of war (default disabled)
-        dispatcher.register(Commands.literal("ron-setfog")
-            .then(Commands.argument("value", StringArgumentType.word())
-                .executes(context -> {
-                    String value = StringArgumentType.getString(context, "value");
-                    boolean fog = "true".equalsIgnoreCase(value) || "1".equals(value);
-                    MatchLifecycle.setFogOfWarOverride(fog);
-                    context.getSource().sendSuccess(
-                        () -> Component.literal("Fog of war: " + fog), true);
-                    return 1;
-                })
-            )
-        );
+        // Proxy/host-decided match flags — each accepts <true|false> (or 1/0).
+        registerBoolCommand(dispatcher, "ron-setprivate", "Private match", MatchLifecycle::setPrivateMatch);
+        registerBoolCommand(dispatcher, "ron-setranked", "Ranked", MatchLifecycle::setRankedOverride);
+        registerBoolCommand(dispatcher, "ron-setalliancelock", "Alliance lock", MatchLifecycle::setAllianceLockOverride);
+        registerBoolCommand(dispatcher, "ron-setfog", "Fog of war", MatchLifecycle::setFogOfWarOverride);
 
         // /ron-reset — reset instance to IDLE state (called by proxy after match)
         // Returns JSON: {"ok": true, "state": "IDLE"} on success, {"ok": false, "reason": "..."} on failure.
@@ -307,5 +242,35 @@ public class RonCommands {
         }));
 
         RonInstance.LOGGER.info("RCON commands registered: ron-maps, ron-status, ron-playerscores, ron-loadmap, ron-setmode, ron-setprivate, ron-setranked, ron-setalliancelock, ron-setfog, ron-reset");
+    }
+
+    /** Register a /name <true|false> command that toggles a single match flag. */
+    private static void registerBoolCommand(CommandDispatcher<CommandSourceStack> dispatcher,
+                                            String name, String label, Consumer<Boolean> setter) {
+        dispatcher.register(Commands.literal(name)
+            .then(Commands.argument("value", StringArgumentType.word())
+                .executes(context -> {
+                    String value = StringArgumentType.getString(context, "value");
+                    boolean flag = "true".equalsIgnoreCase(value) || "1".equals(value);
+                    setter.accept(flag);
+                    context.getSource().sendSuccess(
+                        () -> Component.literal(label + ": " + flag), true);
+                    return 1;
+                })
+            )
+        );
+    }
+
+    private static JsonArray playerResultsArray(List<MatchResult.PlayerResult> players) {
+        JsonArray arr = new JsonArray();
+        for (MatchResult.PlayerResult p : players) {
+            JsonObject pj = new JsonObject();
+            pj.addProperty("uuid", p.uuid());
+            pj.addProperty("name", p.name());
+            pj.addProperty("pointsBefore", p.pointsBefore());
+            pj.addProperty("pointsChange", p.pointsChange());
+            arr.add(pj);
+        }
+        return arr;
     }
 }

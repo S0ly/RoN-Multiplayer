@@ -15,6 +15,8 @@ public class RconClient implements AutoCloseable {
 
     private static final int TYPE_AUTH = 3;
     private static final int TYPE_COMMAND = 2;
+    private static final int CONNECT_TIMEOUT_MS = 3000;
+    private static final int SOCKET_TIMEOUT_MS = 5000;
 
     private final Socket socket;
     private final InputStream in;
@@ -23,12 +25,11 @@ public class RconClient implements AutoCloseable {
 
     public RconClient(String host, int port, String password) throws IOException {
         this.socket = new Socket();
-        this.socket.connect(new InetSocketAddress(host, port), 3000);
-        this.socket.setSoTimeout(5000);
+        this.socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+        this.socket.setSoTimeout(SOCKET_TIMEOUT_MS);
         this.in = socket.getInputStream();
         this.out = socket.getOutputStream();
 
-        // Authenticate
         sendPacket(TYPE_AUTH, password);
         int[] response = readPacket();
         if (response[0] == -1) {

@@ -17,12 +17,10 @@ public class LobbyUI {
     private static final int CLEAR_LINES = 100;
 
     public static void refreshScreen(Player player) {
-        // Clear chat
         for (int i = 0; i < CLEAR_LINES; i++) {
             player.sendMessage("");
         }
 
-        // Header
         player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "Welcome to Reign of Nether!");
         player.sendMessage(ChatColor.DARK_GRAY + "Community Server");
         player.sendMessage("");
@@ -37,7 +35,6 @@ public class LobbyUI {
         player.sendMessage("  /rank — Your stats");
         player.sendMessage("");
 
-        // Queue status
         int queueSize = RonLobby.matchQueue.getPublicQueueSize();
         boolean inQueue = RonLobby.matchQueue.isInAnyQueue(player.getUniqueId());
         player.sendMessage(ChatColor.WHITE + "Queue: " + ChatColor.YELLOW + queueSize + " players" +
