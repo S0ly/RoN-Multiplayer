@@ -16,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MatchService {
 
-    public record ReadyPayload(String mode, boolean isPrivate, boolean ranked, Map<String, Integer> scores) {}
+    public record ReadyPayload(String mode, boolean isPrivate, boolean ranked, boolean lockAlliances,
+                               boolean fogOfWar, Map<String, Integer> scores) {}
 
     /**
      * Proxy-owned ranked policy. Ranked when: not private + not FFA + not coop.
@@ -44,14 +45,18 @@ public class MatchService {
     }
 
     /** Called when a match is assigned to an instance (proxy picked it for a queue). */
-    public Match prepareMatch(String instance, String mapFolder, String mode) {
+    public Match prepareMatch(String instance, String mapFolder, String mode,
+                              boolean lockAlliances, boolean fogOfWar) {
         Match m = Match.create(instance);
         m.setMapFolder(mapFolder);
         m.setMode(mode);
+        m.setLockAlliances(lockAlliances);
+        m.setFogOfWar(fogOfWar);
         m.setState(MatchState.ASSIGNED);
         activeByInstance.put(instance, m);
         persist(m);
-        logger.info("[{}] Match prepared: id={} map={} mode={}", instance, m.id(), mapFolder, mode);
+        logger.info("[{}] Match prepared: id={} map={} mode={} lockAlliances={} fogOfWar={}",
+                instance, m.id(), mapFolder, mode, lockAlliances, fogOfWar);
         return m;
     }
 
@@ -89,7 +94,8 @@ public class MatchService {
         Match m = activeByInstance.get(instance);
         if (m == null) return Optional.empty();
         Map<String, Integer> scores = pendingScoresByMatch.remove(m.id());
-        return Optional.of(new ReadyPayload(m.mode(), m.isPrivate(), m.ranked(), scores));
+        return Optional.of(new ReadyPayload(m.mode(), m.isPrivate(), m.ranked(),
+                m.lockAlliances(), m.fogOfWar(), scores));
     }
 
     public void onRunning(String instance) {

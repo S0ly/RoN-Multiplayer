@@ -180,7 +180,20 @@ public final class MenuService {
     private static void openPrivateInLobby(Player player, PrivateLobbyView lobby) {
         RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_LOBBY);
         Inventory inv = holder.createInventory(36, ChatColor.GOLD + "Private Lobby — " + lobby.code());
+        renderPrivateLobby(inv, lobby, player);
+        player.openInventory(inv);
+    }
+
+    /**
+     * Paint the full private-lobby view in place. Used for both initial open and
+     * live refresh. The host gets the configuration controls (map → mode → optional
+     * rules → start); everyone gets the member list + leave/back.
+     */
+    private static void renderPrivateLobby(Inventory inv, PrivateLobbyView lobby, Player player) {
+        // Repaint the border first so leftover host-control items are cleared.
         fillBorder36(inv);
+        for (int s = 10; s <= 16; s++) inv.setItem(s, null);
+        for (int s = 19; s <= 25; s++) inv.setItem(s, null);
 
         boolean isHost = lobby.host().equals(player.getUniqueId());
 
@@ -190,7 +203,7 @@ public final class MenuService {
                 ChatColor.GRAY + "Share with friends",
                 ChatColor.GRAY + "Host: " + ChatColor.WHITE + nameOf(lobby.host())));
 
-        // Members 10..15 (up to 6, then 19..25 if more)
+        // Members 10..16 then 19..25
         int slot = 10;
         for (UUID memberUuid : lobby.members()) {
             if (slot == 16 || slot == 17) slot = 19;
@@ -202,24 +215,158 @@ public final class MenuService {
             slot++;
         }
 
-        if (isHost) {
-            boolean canStart = lobby.members().size() >= 2;
-            inv.setItem(31, MenuItems.action(Material.FIRE_CHARGE,
-                    (canStart ? ChatColor.GREEN : ChatColor.GRAY) + "Start",
-                    "private-start", null,
-                    ChatColor.GRAY + "Begin the match",
-                    canStart ? ChatColor.GREEN + "Ready — click to start"
-                             : ChatColor.RED + "Waiting for more players (need 2+)"));
-        }
+        if (isHost) renderHostControls(inv, lobby);
 
         inv.setItem(35, MenuItems.action(Material.BARRIER,
                 ChatColor.RED + "Leave Lobby",
                 "private-leave", null,
                 ChatColor.GRAY + (isHost ? "Disbands the lobby" : "Removes you from this lobby")));
-
         inv.setItem(27, MenuItems.back());
+    }
 
+    /** Host-only bottom row: Select Map (28) → Select Mode (29) → optional rules (30/31) → Start (33). */
+    private static void renderHostControls(Inventory inv, PrivateLobbyView lobby) {
+        boolean hasMap = lobby.selectedMapFolder() != null;
+        boolean hasMode = lobby.selectedMode() != null;
+
+        inv.setItem(28, MenuItems.action(Material.FILLED_MAP,
+                ChatColor.AQUA + "Select Map",
+                "private-select-map", null,
+                ChatColor.GRAY + "Map: " + ChatColor.WHITE + (hasMap ? lobby.selectedMapName() : "none"),
+                ChatColor.GRAY + "Click to choose"));
+
+        if (hasMap) {
+            inv.setItem(29, MenuItems.action(MenuItems.modeIcon(lobby.selectedMode()),
+                    ChatColor.AQUA + "Select Game Mode",
+                    "private-select-mode", null,
+                    ChatColor.GRAY + "Mode: " + ChatColor.WHITE + (hasMode ? lobby.selectedMode() : "none"),
+                    ChatColor.GRAY + "Click to choose"));
+        } else {
+            inv.setItem(29, MenuItems.action(Material.GRAY_DYE,
+                    ChatColor.GRAY + "Select Game Mode",
+                    "noop", null,
+                    ChatColor.RED + "Pick a map first"));
+        }
+
+        // Optional rules only appear once a mode is chosen.
+        if (hasMode) {
+            boolean fog = lobby.fogOfWar();
+            inv.setItem(31, MenuItems.action(fog ? Material.SCULK_SENSOR : Material.GLOWSTONE_DUST,
+                    (fog ? ChatColor.GREEN : ChatColor.GRAY) + "Fog of War: " + (fog ? "ON" : "OFF"),
+                    "private-toggle-fog", null,
+                    ChatColor.GRAY + "Optional rule — default OFF",
+                    ChatColor.GRAY + "Click to toggle"));
+
+            if (lobby.selectedMode().toLowerCase().startsWith("ffa")) {
+                boolean lock = lobby.allianceLock();
+                inv.setItem(30, MenuItems.action(lock ? Material.SHIELD : Material.IRON_DOOR,
+                        (lock ? ChatColor.GREEN : ChatColor.GRAY) + "Lock Alliances: " + (lock ? "ON" : "OFF"),
+                        "private-toggle-alliance", null,
+                        ChatColor.GRAY + "FFA only — default ON",
+                        ChatColor.GRAY + "Click to toggle"));
+            }
+        }
+
+        boolean countOk = hasMode && lobby.members().size() == lobby.selectedModePlayers();
+        boolean canStart = hasMap && hasMode && countOk;
+        List<String> startLore = new ArrayList<>();
+        startLore.add(ChatColor.GRAY + "Begin the match");
+        if (!hasMap) startLore.add(ChatColor.RED + "Select a map");
+        else if (!hasMode) startLore.add(ChatColor.RED + "Select a game mode");
+        else if (!countOk) startLore.add(ChatColor.RED + "Need " + lobby.selectedModePlayers()
+                + " players (have " + lobby.members().size() + ")");
+        else startLore.add(ChatColor.GREEN + "Ready — click to start");
+        inv.setItem(33, MenuItems.action(Material.FIRE_CHARGE,
+                (canStart ? ChatColor.GREEN : ChatColor.GRAY) + "Start",
+                canStart ? "private-start" : "noop", null,
+                startLore.toArray(new String[0])));
+    }
+
+    // ---------- Host map / mode selection ----------
+
+    public static void openHostMapSelect(Player player) {
+        PrivateLobbyView lobby = RonLobby.matchQueue.getPrivateLobbyView(player.getUniqueId());
+        if (lobby == null || !lobby.host().equals(player.getUniqueId())) {
+            player.sendMessage(ChatColor.RED + "[RoN] Only the host can pick the map.");
+            return;
+        }
+        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_MAP_SELECT);
+        Inventory inv = holder.createInventory(54, ChatColor.GOLD + "Select a Map");
+        for (int i = 0; i < 9; i++) inv.setItem(i, MenuItems.border());
+        for (int i = 45; i < 54; i++) inv.setItem(i, MenuItems.border());
+
+        List<MapOption> options = lobby.mapOptions();
+        if (options == null || options.isEmpty()) {
+            inv.setItem(22, MenuItems.action(Material.GRAY_DYE,
+                    ChatColor.GRAY + "No maps available",
+                    "noop", null,
+                    ChatColor.GRAY + "for " + lobby.members().size() + " players right now"));
+        } else {
+            int slot = 10;
+            for (MapOption map : options) {
+                if (slot >= 44) break;
+                if (slot % 9 == 8) slot += 2;
+                inv.setItem(slot, buildHostMapItem(map, lobby.selectedMapFolder()));
+                slot++;
+            }
+        }
+
+        inv.setItem(49, MenuItems.action(Material.ARROW, ChatColor.WHITE + "← Back",
+                "back", null, ChatColor.GRAY + "Return to the lobby"));
         player.openInventory(inv);
+    }
+
+    private static ItemStack buildHostMapItem(MapOption map, String selectedFolder) {
+        List<String> lore = new ArrayList<>();
+        List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
+        for (ModeOption m : modes) {
+            lore.add(ChatColor.AQUA + "• " + m.name() + ChatColor.GRAY + " (" + m.players() + " players)");
+        }
+        lore.add("");
+        boolean selected = map.folder().equals(selectedFolder);
+        lore.add(selected ? ChatColor.GREEN + "Selected — click to change modes"
+                          : ChatColor.YELLOW + "Click to choose a mode");
+        return MenuItems.action(Material.FILLED_MAP,
+                (selected ? ChatColor.GREEN : ChatColor.WHITE) + map.name(),
+                "private-pick-map", map.folder(), lore);
+    }
+
+    public static void openHostModeSelect(Player player, String mapFolder) {
+        PrivateLobbyView lobby = RonLobby.matchQueue.getPrivateLobbyView(player.getUniqueId());
+        if (lobby == null || !lobby.host().equals(player.getUniqueId())) {
+            player.sendMessage(ChatColor.RED + "[RoN] Only the host can pick the mode.");
+            return;
+        }
+        MapOption map = lobby.mapOptions().stream()
+                .filter(o -> o.folder().equals(mapFolder)).findFirst().orElse(null);
+        if (map == null) {
+            player.sendMessage(ChatColor.RED + "[RoN] That map is no longer available.");
+            return;
+        }
+
+        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_MODE_SELECT, mapFolder);
+        Inventory inv = holder.createInventory(27, ChatColor.GOLD + "Modes — " + map.name());
+        fillBorder(inv);
+
+        int slot = 10;
+        for (ModeOption mode : map.modes()) {
+            if (slot >= 17) break;
+            inv.setItem(slot, buildHostModeItem(mapFolder, mode, mode.name().equals(lobby.selectedMode())));
+            slot++;
+        }
+
+        inv.setItem(18, MenuItems.action(Material.ARROW, ChatColor.WHITE + "← Back",
+                "back", null, ChatColor.GRAY + "Back to maps"));
+        player.openInventory(inv);
+    }
+
+    private static ItemStack buildHostModeItem(String mapFolder, ModeOption mode, boolean selected) {
+        return MenuItems.action(MenuItems.modeIcon(mode.name()),
+                (selected ? ChatColor.GREEN : ChatColor.AQUA) + mode.name(),
+                "private-pick-mode", mapFolder + "/" + mode.name(),
+                ChatColor.GRAY + "" + mode.players() + " players",
+                "",
+                selected ? ChatColor.GREEN + "Selected" : ChatColor.GREEN + "Click to choose");
     }
 
     // ---------- Vote ----------
@@ -463,38 +610,7 @@ public final class MenuService {
             openPrivate(player);
             return;
         }
-        boolean isHost = lobby.host().equals(player.getUniqueId());
-
-        // Clear the variable area before re-populating
-        for (int s = 10; s <= 16; s++) inv.setItem(s, null);
-        for (int s = 19; s <= 25; s++) inv.setItem(s, null);
-
-        inv.setItem(4, MenuItems.action(Material.NAME_TAG,
-                ChatColor.YELLOW + "Code: " + ChatColor.WHITE + ChatColor.BOLD + lobby.code(),
-                "noop", null,
-                ChatColor.GRAY + "Share with friends",
-                ChatColor.GRAY + "Host: " + ChatColor.WHITE + nameOf(lobby.host())));
-
-        int slot = 10;
-        for (UUID memberUuid : lobby.members()) {
-            if (slot == 16 || slot == 17) slot = 19;
-            if (slot > 25) break;
-            inv.setItem(slot, MenuItems.playerHead(memberUuid,
-                    ChatColor.WHITE + nameOf(memberUuid)
-                            + (memberUuid.equals(lobby.host()) ? ChatColor.GOLD + " (host)" : ""),
-                    "noop", null, null));
-            slot++;
-        }
-
-        if (isHost) {
-            boolean canStart = lobby.members().size() >= 2;
-            inv.setItem(31, MenuItems.action(Material.FIRE_CHARGE,
-                    (canStart ? ChatColor.GREEN : ChatColor.GRAY) + "Start",
-                    "private-start", null,
-                    ChatColor.GRAY + "Begin the match",
-                    canStart ? ChatColor.GREEN + "Ready — click to start"
-                             : ChatColor.RED + "Waiting for more players (need 2+)"));
-        }
+        renderPrivateLobby(inv, lobby, player);
     }
 
     // ---------- Matches ----------

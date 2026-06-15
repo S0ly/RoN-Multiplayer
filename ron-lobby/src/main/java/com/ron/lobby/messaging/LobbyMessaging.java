@@ -174,7 +174,8 @@ public class LobbyMessaging implements PluginMessageListener {
         sendPluginMessage(Channels.MATCH, gson.toJson(json));
     }
 
-    public static void sendFindMatch(int playerCount, String chosenMap, String chosenMode) {
+    public static void sendFindMatch(int playerCount, String chosenMap, String chosenMode,
+                                     boolean lockAlliances, boolean fogOfWar) {
         JsonObject json = new JsonObject();
         json.addProperty("action", Action.FIND_MATCH);
         json.addProperty("playerCount", playerCount);
@@ -185,6 +186,8 @@ public class LobbyMessaging implements PluginMessageListener {
         if (chosenMode != null) {
             json.addProperty("chosenMode", chosenMode);
         }
+        json.addProperty("lockAlliances", lockAlliances);
+        json.addProperty("fogOfWar", fogOfWar);
 
         sendPluginMessage(Channels.MATCH, gson.toJson(json));
     }

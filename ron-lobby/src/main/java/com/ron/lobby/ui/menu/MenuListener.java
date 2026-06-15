@@ -127,9 +127,16 @@ public class MenuListener implements Listener {
                         () -> MenuService.openHub(player), 1L);
             }
             case "back" -> {
-                if (holder != null && holder.menuId() == MenuId.VOTE_MODES) {
+                MenuId id = holder != null ? holder.menuId() : null;
+                if (id == MenuId.VOTE_MODES) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
                             () -> MenuService.openVote(player), 1L);
+                } else if (id == MenuId.PRIVATE_MAP_SELECT) {
+                    Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
+                            () -> MenuService.openPrivate(player), 1L);
+                } else if (id == MenuId.PRIVATE_MODE_SELECT) {
+                    Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
+                            () -> MenuService.openHostMapSelect(player), 1L);
                 } else {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
                             () -> MenuService.openHub(player), 1L);
@@ -169,6 +176,37 @@ public class MenuListener implements Listener {
                 q.startPrivate(player.getUniqueId());
                 player.closeInventory();
             }
+            case "private-select-map" -> {
+                player.sendMessage(ChatColor.GRAY + "[RoN] Fetching maps...");
+                q.requestMapsForHost(player.getUniqueId());
+            }
+            case "private-select-mode" -> {
+                PrivateLobbyView v = q.getPrivateLobbyView(player.getUniqueId());
+                if (v == null || v.selectedMapFolder() == null) {
+                    player.sendMessage(ChatColor.RED + "[RoN] Pick a map first.");
+                } else {
+                    MenuService.openHostModeSelect(player, v.selectedMapFolder());
+                }
+            }
+            case "private-pick-map" -> {
+                if (payload != null) {
+                    q.selectHostMap(player.getUniqueId(), payload);
+                    MenuService.openHostModeSelect(player, payload);
+                }
+            }
+            case "private-pick-mode" -> {
+                if (payload != null) {
+                    int slash = payload.indexOf('/');
+                    if (slash > 0) {
+                        q.selectHostMode(player.getUniqueId(),
+                                payload.substring(0, slash), payload.substring(slash + 1));
+                        Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
+                                () -> MenuService.openPrivate(player), 1L);
+                    }
+                }
+            }
+            case "private-toggle-alliance" -> q.toggleHostAllianceLock(player.getUniqueId());
+            case "private-toggle-fog" -> q.toggleHostFog(player.getUniqueId());
             case "vote-random" -> {
                 List<MapOption> opts = q.getVoteMapOptions();
                 int randomIdx = opts.size() + 1;

@@ -12,6 +12,8 @@ public class Match {
     private String mode;
     private boolean ranked;
     private boolean isPrivate;
+    private boolean lockAlliances = true;
+    private boolean fogOfWar = false;
     private MatchState state;
     private long startedAt;
     private long finishedAt;
@@ -33,6 +35,8 @@ public class Match {
     public String mode() { return mode; }
     public boolean ranked() { return ranked; }
     public boolean isPrivate() { return isPrivate; }
+    public boolean lockAlliances() { return lockAlliances; }
+    public boolean fogOfWar() { return fogOfWar; }
     public MatchState state() { return state; }
     public long startedAt() { return startedAt; }
     public long finishedAt() { return finishedAt; }
@@ -42,6 +46,8 @@ public class Match {
     public void setMode(String mode) { this.mode = mode; }
     public void setRanked(boolean ranked) { this.ranked = ranked; }
     public void setPrivate(boolean isPrivate) { this.isPrivate = isPrivate; }
+    public void setLockAlliances(boolean lockAlliances) { this.lockAlliances = lockAlliances; }
+    public void setFogOfWar(boolean fogOfWar) { this.fogOfWar = fogOfWar; }
     public void setState(MatchState state) { this.state = state; }
     public void setStartedAt(long startedAt) { this.startedAt = startedAt; }
     public void setFinishedAt(long finishedAt) { this.finishedAt = finishedAt; }

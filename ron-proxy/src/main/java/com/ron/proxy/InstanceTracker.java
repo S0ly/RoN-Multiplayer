@@ -257,6 +257,20 @@ public class InstanceTracker {
         } catch (Exception e) {
             logger.warn("[{}] Failed to set ranked flag (instance may be on old version): {}", name, e.getMessage());
         }
+        // Alliance locking (default locked, host may unlock private FFA).
+        try {
+            sendRconCommand(name, "ron-setalliancelock " + payload.lockAlliances());
+            logger.info("[{}] Alliance lock: {}", name, payload.lockAlliances());
+        } catch (Exception e) {
+            logger.warn("[{}] Failed to set alliance lock (instance may be on old version): {}", name, e.getMessage());
+        }
+        // Fog of war (default disabled, host may enable in private lobby).
+        try {
+            sendRconCommand(name, "ron-setfog " + payload.fogOfWar());
+            logger.info("[{}] Fog of war: {}", name, payload.fogOfWar());
+        } catch (Exception e) {
+            logger.warn("[{}] Failed to set fog of war (instance may be on old version): {}", name, e.getMessage());
+        }
     }
 
     private boolean shouldSetMode(String instanceName, String mode) {

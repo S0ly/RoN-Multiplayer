@@ -163,6 +163,9 @@ public class MessageHandler {
                     int playerCount = json.get("playerCount").getAsInt();
                     String chosenMap = json.has("chosenMap") ? json.get("chosenMap").getAsString() : null;
                     String chosenMode = json.has("chosenMode") ? json.get("chosenMode").getAsString() : null;
+                    // Absent ⇒ defaults: alliances locked, fog disabled (covers the public path).
+                    boolean lockAlliances = !json.has("lockAlliances") || json.get("lockAlliances").getAsBoolean();
+                    boolean fogOfWar = json.has("fogOfWar") && json.get("fogOfWar").getAsBoolean();
 
                     Optional<InstanceTracker.MatchResult> result = instanceTracker.findMatchForMap(playerCount, chosenMap, chosenMode);
 
@@ -175,7 +178,7 @@ public class MessageHandler {
                         boolean sent = instanceTracker.loadMap(instance, map);
                         if (sent) {
                             if (matchService != null) {
-                                matchService.prepareMatch(instance, map, mode);
+                                matchService.prepareMatch(instance, map, mode, lockAlliances, fogOfWar);
                             }
                             response.addProperty("found", true);
                             response.addProperty("instance", instance);

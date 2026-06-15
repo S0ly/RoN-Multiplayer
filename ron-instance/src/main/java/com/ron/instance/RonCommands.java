@@ -252,6 +252,34 @@ public class RonCommands {
             )
         );
 
+        // /ron-setalliancelock <true|false> — proxy/host-decided alliance locking
+        dispatcher.register(Commands.literal("ron-setalliancelock")
+            .then(Commands.argument("value", StringArgumentType.word())
+                .executes(context -> {
+                    String value = StringArgumentType.getString(context, "value");
+                    boolean lock = "true".equalsIgnoreCase(value) || "1".equals(value);
+                    MatchLifecycle.setAllianceLockOverride(lock);
+                    context.getSource().sendSuccess(
+                        () -> Component.literal("Alliance lock: " + lock), true);
+                    return 1;
+                })
+            )
+        );
+
+        // /ron-setfog <true|false> — proxy/host-decided fog of war (default disabled)
+        dispatcher.register(Commands.literal("ron-setfog")
+            .then(Commands.argument("value", StringArgumentType.word())
+                .executes(context -> {
+                    String value = StringArgumentType.getString(context, "value");
+                    boolean fog = "true".equalsIgnoreCase(value) || "1".equals(value);
+                    MatchLifecycle.setFogOfWarOverride(fog);
+                    context.getSource().sendSuccess(
+                        () -> Component.literal("Fog of war: " + fog), true);
+                    return 1;
+                })
+            )
+        );
+
         // /ron-reset — reset instance to IDLE state (called by proxy after match)
         // Returns JSON: {"ok": true, "state": "IDLE"} on success, {"ok": false, "reason": "..."} on failure.
         dispatcher.register(Commands.literal("ron-reset").executes(context -> {
@@ -278,6 +306,6 @@ public class RonCommands {
             return 1;
         }));
 
-        RonInstance.LOGGER.info("RCON commands registered: ron-maps, ron-status, ron-playerscores, ron-loadmap, ron-setmode, ron-setprivate, ron-reset");
+        RonInstance.LOGGER.info("RCON commands registered: ron-maps, ron-status, ron-playerscores, ron-loadmap, ron-setmode, ron-setprivate, ron-setranked, ron-setalliancelock, ron-setfog, ron-reset");
     }
 }

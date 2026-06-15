@@ -47,6 +47,11 @@ public class MatchQueue implements Listener {
     private final Map<String, PrivateLobby> privateLobbies = new ConcurrentHashMap<>();
     private final Map<UUID, String> playerLobby = new ConcurrentHashMap<>();
 
+    // Host currently browsing maps for their private lobby (awaiting MAP_OPTIONS).
+    // Set by requestMapsForHost, consumed in onMapOptions — keeps the host's map
+    // fetch from being mistaken for a public vote.
+    private volatile UUID pendingHostBrowse = null;
+
     // Pending match state (shared across public/private — only one match at a time)
     private String pendingInstance = null;
     private Set<UUID> pendingPlayers = null;
@@ -161,14 +166,84 @@ public class MatchQueue implements Listener {
         publishState();
     }
 
+    /** Host clicked "Select Map" — fetch maps compatible with the current lobby size. */
+    public void requestMapsForHost(UUID host) {
+        PrivateLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) {
+            tellPlayer(host, ChatColor.RED + "[RoN] Only the lobby host can configure the match.");
+            return;
+        }
+        if (availableInstances <= 0) {
+            tellPlayer(host, ChatColor.RED + "[RoN] No game servers available right now.");
+            return;
+        }
+        pendingHostBrowse = host;
+        LobbyMessaging.sendGetMaps(lobby.players.size());
+    }
+
+    public void selectHostMap(UUID host, String folder) {
+        PrivateLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) return;
+        MapOption map = lobby.cachedMapOptions.stream()
+                .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
+        if (map == null) {
+            tellPlayer(host, ChatColor.RED + "[RoN] That map is no longer available.");
+            return;
+        }
+        lobby.selectedMapFolder = map.folder();
+        lobby.selectedMapName = map.name();
+        // Mode depends on the map — reset the mode and its optional rules.
+        lobby.selectedMode = null;
+        lobby.selectedModePlayers = 0;
+        lobby.allianceLock = Boolean.TRUE;
+        lobby.fogOfWar = Boolean.FALSE;
+        publishState();
+    }
+
+    public void selectHostMode(UUID host, String folder, String modeName) {
+        PrivateLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) return;
+        if (lobby.selectedMapFolder == null || !lobby.selectedMapFolder.equals(folder)) {
+            tellPlayer(host, ChatColor.RED + "[RoN] Pick a map first.");
+            return;
+        }
+        MapOption map = lobby.cachedMapOptions.stream()
+                .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
+        ModeOption mode = map == null ? null : map.modes().stream()
+                .filter(m -> m.name().equals(modeName)).findFirst().orElse(null);
+        if (mode == null) {
+            tellPlayer(host, ChatColor.RED + "[RoN] That mode is no longer available.");
+            return;
+        }
+        lobby.selectedMode = mode.name();
+        lobby.selectedModePlayers = mode.players();
+        publishState();
+    }
+
+    /** Toggle alliance locking — only meaningful for FFA (other modes are always locked). */
+    public void toggleHostAllianceLock(UUID host) {
+        PrivateLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) return;
+        if (lobby.selectedMode == null || !lobby.selectedMode.toLowerCase().startsWith("ffa")) return;
+        lobby.allianceLock = !lobby.allianceLock;
+        publishState();
+    }
+
+    public void toggleHostFog(UUID host) {
+        PrivateLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) return;
+        if (lobby.selectedMode == null) return;
+        lobby.fogOfWar = !lobby.fogOfWar;
+        publishState();
+    }
+
     public void startPrivate(UUID uuid) {
-        String code = playerLobby.get(uuid);
-        if (code == null) {
+        PrivateLobby lobby = lobbyOf(uuid);
+        if (lobby == null) {
             tellPlayer(uuid, ChatColor.RED + "[RoN] You're not in a private lobby.");
             return;
         }
-        PrivateLobby lobby = privateLobbies.get(code);
-        if (lobby == null || !lobby.host.equals(uuid)) {
+        if (!lobby.host.equals(uuid)) {
             tellPlayer(uuid, ChatColor.RED + "[RoN] Only the lobby host can start.");
             return;
         }
@@ -176,7 +251,22 @@ public class MatchQueue implements Listener {
             tellPlayer(uuid, ChatColor.RED + "[RoN] Need at least 2 players to start.");
             return;
         }
-        requestMatchForLobby(lobby);
+        if (lobby.selectedMapFolder == null || lobby.selectedMode == null) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] Select a map and a game mode first.");
+            return;
+        }
+        if (lobby.players.size() != lobby.selectedModePlayers) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] " + lobby.selectedMode + " needs "
+                    + lobby.selectedModePlayers + " players — the lobby has " + lobby.players.size() + ".");
+            return;
+        }
+        startPrivateMatchDirect(lobby);
+    }
+
+    private PrivateLobby lobbyOf(UUID uuid) {
+        String code = playerLobby.get(uuid);
+        if (code == null) return null;
+        return privateLobbies.get(code);
     }
 
     // --- Shared ---
@@ -328,6 +418,19 @@ public class MatchQueue implements Listener {
     // --- Combined map+mode voting ---
 
     public void onMapOptions(List<MapOption> options) {
+        // Host browsing maps for a private lobby — cache the options and open the
+        // host's map picker instead of starting a public vote.
+        if (pendingHostBrowse != null) {
+            UUID host = pendingHostBrowse;
+            pendingHostBrowse = null;
+            PrivateLobby lobby = lobbyOf(host);
+            if (lobby != null && lobby.host.equals(host)) {
+                lobby.cachedMapOptions = options;
+                Player p = Bukkit.getPlayer(host);
+                if (p != null) MenuService.openHostMapSelect(p);
+            }
+            return;
+        }
         if (phase != Phase.LOCKED_VOTING || pendingPlayers == null) return;
         Set<UUID> voters = pendingPlayers;
         voteSession.start(voters, options, voteSeconds, this::proceedWithChoice);
@@ -363,7 +466,8 @@ public class MatchQueue implements Listener {
         String mapFolder = choice.mapFolder() != null ? choice.mapFolder() : "random";
         String mode = choice.modeName();
         voteSession.clear();
-        LobbyMessaging.sendFindMatch(size, mapFolder, mode);
+        // Public matches: alliances locked, fog disabled (host controls only apply to private lobbies).
+        LobbyMessaging.sendFindMatch(size, mapFolder, mode, true, false);
     }
 
     public int getMinPlayers() { return minPlayers; }
@@ -382,7 +486,9 @@ public class MatchQueue implements Listener {
         if (code == null) return null;
         PrivateLobby lobby = privateLobbies.get(code);
         if (lobby == null) return null;
-        return new PrivateLobbyView(lobby.code, lobby.host, List.copyOf(lobby.players));
+        return new PrivateLobbyView(lobby.code, lobby.host, List.copyOf(lobby.players),
+                lobby.selectedMapFolder, lobby.selectedMapName, lobby.selectedMode,
+                lobby.selectedModePlayers, lobby.allianceLock, lobby.fogOfWar, lobby.cachedMapOptions);
     }
 
     // --- Phase transitions ---
@@ -440,11 +546,12 @@ public class MatchQueue implements Listener {
         publishState();
     }
 
-    private void requestMatchForLobby(PrivateLobby lobby) {
-        if (lobby.players.size() < 2) {
-            broadcastToLobby(lobby, "Not enough players — match cancelled.");
-            return;
-        }
+    /**
+     * Start a host-configured private match: no voting — the host has already chosen
+     * the map, mode and optional rules. Locks the room and asks the proxy for the
+     * specific map+mode directly.
+     */
+    private void startPrivateMatchDirect(PrivateLobby lobby) {
         if (availableInstances <= 0) {
             broadcastToLobby(lobby, ChatColor.RED + "No game servers available right now.");
             return;
@@ -463,10 +570,15 @@ public class MatchQueue implements Listener {
 
         pendingPlayers = new LinkedHashSet<>(lobby.players);
         pendingPrivateMatch = true;
+        pendingMin = lobby.selectedModePlayers;
+        pendingMapName = lobby.selectedMapName;
+        pendingMode = lobby.selectedMode;
         phase = Phase.LOCKED_VOTING;
 
-        broadcastToPlayers(pendingPlayers, ChatColor.GOLD + "Lobby locked! Fetching map options...");
-        LobbyMessaging.sendGetMaps(pendingPlayers.size());
+        broadcastToPlayers(pendingPlayers, ChatColor.GOLD + "Lobby locked! Preparing "
+                + lobby.selectedMapName + " (" + lobby.selectedMode + ")...");
+        LobbyMessaging.sendFindMatch(pendingPlayers.size(), lobby.selectedMapFolder, lobby.selectedMode,
+                lobby.allianceLock, lobby.fogOfWar);
         publishState();
     }
 
@@ -474,6 +586,7 @@ public class MatchQueue implements Listener {
 
     private void cancelPendingMatch() {
         phase = Phase.OPEN;
+        pendingHostBrowse = null;
         pendingInstance = null;
         pendingPlayers = null;
         pendingPrivateMatch = false;
@@ -543,6 +656,9 @@ public class MatchQueue implements Listener {
     }
 
     private void disbandLobby(PrivateLobby lobby) {
+        if (pendingHostBrowse != null && lobby.players.contains(pendingHostBrowse)) {
+            pendingHostBrowse = null;
+        }
         broadcastToLobby(lobby, "Lobby disbanded.");
         for (UUID uuid : lobby.players) {
             playerLobby.remove(uuid);

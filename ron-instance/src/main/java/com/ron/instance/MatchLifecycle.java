@@ -104,15 +104,17 @@ public class MatchLifecycle {
             phaseTicks = 0;
             phase = Phase.READYING;
             welcomeShown.set(false);
-            RonInstance.LOGGER.info("MatchLifecycle: READYING phase ({} slots for mode={}, isCoop={}, isFFA={}, isRanked={})",
-                    expectedPlayers, InstanceStateManager.getCurrentMode(), isCoop(), isFFA(), isRanked());
+            RonInstance.LOGGER.info("MatchLifecycle: READYING phase ({} slots for mode={}, isCoop={}, isFFA={}, isRanked={}, lockAlliances={}, fogOfWar={})",
+                    expectedPlayers, InstanceStateManager.getCurrentMode(), isCoop(), isFFA(), isRanked(),
+                    effectiveAllianceLock(), effectiveFogOfWar());
             // Wipe any alliances left over from a previous match on this reused
             // instance JVM. Otherwise a 2v2's pairings carry into the next match
             // (e.g. a 1v1), and since team modes lock alliances they can't be
             // disbanded. StartPos re-applies the correct alliances at game start.
             AlliancesServerEvents.resetAllAlliances();
             runCommand("gamerule coopMode " + isCoop());
-            runCommand("gamerule lockAlliances " + !isFFA());
+            runCommand("gamerule lockAlliances " + effectiveAllianceLock());
+            runCommand("rts-fog " + (effectiveFogOfWar() ? "enable" : "disable"));
             gracePeriods.scheduleAfter(WELCOME_DELAY_SECONDS, MatchLifecycle::showWelcomeIfNeeded);
         } else if (phase == Phase.READYING) {
             broadcast(ChatFormatting.GRAY + name + " joined.");
@@ -455,6 +457,31 @@ public class MatchLifecycle {
         return !privateMatch && !isFFA() && !isCoop();
     }
 
+    // Alliance locking and fog of war are decided by the lobby/proxy (host choice
+    // in private lobbies; defaults otherwise) and pushed via /ron-setalliancelock
+    // and /ron-setfog. Defaults when no override arrives: alliances locked even in
+    // FFA, fog of war disabled.
+    private static Boolean allianceLockOverride = null;
+    private static Boolean fogOfWarOverride = null;
+
+    public static void setAllianceLockOverride(Boolean value) {
+        allianceLockOverride = value;
+        RonInstance.LOGGER.info("Alliance lock override set to: {}", value);
+    }
+
+    public static boolean effectiveAllianceLock() {
+        return allianceLockOverride != null ? allianceLockOverride : true;
+    }
+
+    public static void setFogOfWarOverride(Boolean value) {
+        fogOfWarOverride = value;
+        RonInstance.LOGGER.info("Fog of war override set to: {}", value);
+    }
+
+    public static boolean effectiveFogOfWar() {
+        return fogOfWarOverride != null ? fogOfWarOverride : false;
+    }
+
     // ========================================================================
     // Reset
     // ========================================================================
@@ -474,6 +501,8 @@ public class MatchLifecycle {
         gracePeriods.reset();
         selections.clear();
         rankedOverride = null;
+        allianceLockOverride = null;
+        fogOfWarOverride = null;
         AlliancesServerEvents.resetAllAlliances();
 
         MatchResult.reset();
