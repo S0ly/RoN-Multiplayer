@@ -45,6 +45,7 @@ public class RonProxy {
     private MatchService matchService;
     private QueueMirror queueMirror;
     private RankSyncService rankSyncService;
+    private boolean rankedEnabled = true;
 
     public static final Gson GSON = new Gson();
 
@@ -81,6 +82,8 @@ public class RonProxy {
             instanceTracker.setRankSyncService(rankSyncService);
         }
         matchService = new MatchService(logger, matchDAO);
+        matchService.setRankedEnabled(rankedEnabled);
+        instanceTracker.setRankedEnabled(rankedEnabled);
         instanceTracker.setMatchService(matchService);
         messageHandler.setMatchService(matchService);
         queueMirror = new QueueMirror();
@@ -136,6 +139,7 @@ public class RonProxy {
             JsonObject config = GSON.fromJson(content, JsonObject.class);
 
             initDatabase(config);
+            initRanked(config, configFile);
             initRankSync(config);
             applyModeFilter(config, configFile);
             registerInstances(config);
@@ -167,6 +171,9 @@ public class RonProxy {
             defaultConfig.add("database", dbConfig);
 
             defaultConfig.add("instances", instances);
+            JsonObject rankedConfig = new JsonObject();
+            rankedConfig.addProperty("enabled", true);
+            defaultConfig.add("ranked", rankedConfig);
             defaultConfig.add("rankSync", RankSyncConfig.defaultStub());
             defaultConfig.add("gameModes", ModeFilterConfig.defaultStub());
             Files.writeString(configFile, GSON.toJson(defaultConfig));
@@ -194,7 +201,33 @@ public class RonProxy {
         }
     }
 
+    /**
+     * Network-wide ranked switch. When disabled, every match is unranked and the lobby
+     * hides ranked UI. Writes a default {@code "ranked": {"enabled": true}} block back to
+     * legacy configs so operators can find and edit it.
+     */
+    private void initRanked(JsonObject config, Path configFile) {
+        if (config.has("ranked") && config.getAsJsonObject("ranked").has("enabled")) {
+            rankedEnabled = config.getAsJsonObject("ranked").get("enabled").getAsBoolean();
+        } else {
+            JsonObject ranked = new JsonObject();
+            ranked.addProperty("enabled", true);
+            config.add("ranked", ranked);
+            try {
+                Files.writeString(configFile, GSON.toJson(config));
+                logger.info("Added default 'ranked' block to config.json (ranked enabled)");
+            } catch (IOException e) {
+                logger.error("Failed to write 'ranked' block to config.json", e);
+            }
+        }
+        logger.info("Ranked system {} network-wide", rankedEnabled ? "ENABLED" : "DISABLED");
+    }
+
     private void initRankSync(JsonObject config) {
+        if (!rankedEnabled) {
+            logger.info("Ranked disabled — skipping rank sync service");
+            return;
+        }
         RankSyncConfig syncConfig = RankSyncConfig.fromJson(config);
         if (syncConfig.enabled && statsDAO != null) {
             rankSyncService = new RankSyncService(syncConfig, statsDAO, logger);

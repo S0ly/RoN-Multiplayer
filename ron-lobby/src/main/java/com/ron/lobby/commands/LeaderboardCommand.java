@@ -20,6 +20,11 @@ public class LeaderboardCommand implements CommandExecutor {
             return true;
         }
 
+        if (!LobbyMessaging.isRankedEnabled()) {
+            player.sendMessage(ChatColor.RED + "Ranked is disabled on this network.");
+            return true;
+        }
+
         LobbyUI.refreshScreen(player);
 
         LobbyMessaging.requestLeaderboard(10, response -> {

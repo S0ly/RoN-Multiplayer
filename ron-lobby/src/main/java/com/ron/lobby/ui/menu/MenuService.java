@@ -60,15 +60,17 @@ public final class MenuService {
                 "open-private", null,
                 ChatColor.GRAY + "Create or join a private lobby"));
 
-        inv.setItem(14, MenuItems.action(Material.GOLD_INGOT,
-                ChatColor.GOLD + "Leaderboard",
-                "open-leaderboard", null,
-                ChatColor.GRAY + "Top 10 players"));
+        if (LobbyMessaging.isRankedEnabled()) {
+            inv.setItem(14, MenuItems.action(Material.GOLD_INGOT,
+                    ChatColor.GOLD + "Leaderboard",
+                    "open-leaderboard", null,
+                    ChatColor.GRAY + "Top 10 players"));
 
-        inv.setItem(16, MenuItems.playerHead(player.getUniqueId(),
-                ChatColor.LIGHT_PURPLE + "Your Rank",
-                "open-rank", null,
-                List.of(ChatColor.GRAY + "Click to view your stats")));
+            inv.setItem(16, MenuItems.playerHead(player.getUniqueId(),
+                    ChatColor.LIGHT_PURPLE + "Your Rank",
+                    "open-rank", null,
+                    List.of(ChatColor.GRAY + "Click to view your stats")));
+        }
 
         fillStatusRow(inv, player);
 
@@ -677,6 +679,10 @@ public final class MenuService {
     // ---------- Leaderboard ----------
 
     public static void openLeaderboard(Player player) {
+        if (!LobbyMessaging.isRankedEnabled()) {
+            player.sendMessage(ChatColor.RED + "[RoN] Ranked is disabled on this network.");
+            return;
+        }
         LobbyMessaging.requestLeaderboard(10, response -> renderLeaderboard(player, response));
     }
 
@@ -721,6 +727,10 @@ public final class MenuService {
     // ---------- Rank ----------
 
     public static void openRank(Player player) {
+        if (!LobbyMessaging.isRankedEnabled()) {
+            player.sendMessage(ChatColor.RED + "[RoN] Ranked is disabled on this network.");
+            return;
+        }
         LobbyMessaging.requestRank(player.getUniqueId().toString(), player.getName(), response -> {
             if (response == null || response.has("error")) {
                 player.sendMessage(ChatColor.RED + "[RoN] Failed to load your stats.");

@@ -39,9 +39,16 @@ public class MatchService {
     private final Set<String> awaitingReady = ConcurrentHashMap.newKeySet();
     private final Set<String> handledFinished = ConcurrentHashMap.newKeySet();
 
+    /** Network-wide ranked switch (proxy config.json). When false, every match is unranked. */
+    private volatile boolean rankedEnabled = true;
+
     public MatchService(Logger logger, MatchDAO matchDAO) {
         this.logger = logger;
         this.matchDAO = matchDAO;
+    }
+
+    public void setRankedEnabled(boolean enabled) {
+        this.rankedEnabled = enabled;
     }
 
     /** Called when a match is assigned to an instance (proxy picked it for a queue). */
@@ -73,7 +80,7 @@ public class MatchService {
         m.players().clear();
         m.players().addAll(players);
         m.setPrivate(isPrivate);
-        m.setRanked(computeRanked(m.mode(), isPrivate));
+        m.setRanked(rankedEnabled && computeRanked(m.mode(), isPrivate));
         if (scores != null && !scores.isEmpty()) {
             pendingScoresByMatch.put(m.id(), scores);
         }

@@ -57,6 +57,9 @@ public class InstanceTracker {
     // Network-wide mode allow-list (names). null = no filter, every mode allowed.
     private volatile Set<String> enabledModes = null;
 
+    // Network-wide ranked switch (proxy config.json). Broadcast to the lobby so it can hide ranked UI.
+    private volatile boolean rankedEnabled = true;
+
     private MessageHandler messageHandler;
     private PlayerRouter playerRouter;
     private ActiveMatchTracker activeMatchTracker;
@@ -80,6 +83,9 @@ public class InstanceTracker {
 
     /** Network-wide enabled-mode allow-list. null disables the filter (all modes allowed). */
     public void setEnabledModes(Set<String> enabledModes) { this.enabledModes = enabledModes; }
+
+    /** Network-wide ranked switch. When false, the lobby hides ranked UI. */
+    public void setRankedEnabled(boolean rankedEnabled) { this.rankedEnabled = rankedEnabled; }
 
     public void addInstance(String name, String rconHost, int rconPort, String rconPassword) {
         configs.put(name, new InstanceConfig(name, rconHost, rconPort, rconPassword));
@@ -655,6 +661,7 @@ public class InstanceTracker {
         info.addProperty("maxPlayers", getMaxPlayers());
         info.addProperty("availableInstances", getAvailableCount());
         info.addProperty("occupiedInstances", getRunningCount());
+        info.addProperty("rankedEnabled", rankedEnabled);
 
         JsonObject matches = new JsonObject();
         JsonObject instancesObj = new JsonObject();

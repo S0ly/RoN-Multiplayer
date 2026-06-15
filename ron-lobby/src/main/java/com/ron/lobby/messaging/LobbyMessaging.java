@@ -131,6 +131,17 @@ public class LobbyMessaging implements PluginMessageListener {
     }
 
     /**
+     * Network-wide ranked switch, as last broadcast by the proxy. Defaults to true until
+     * the first INFO arrives, so ranked UI shows by default and only hides once the proxy
+     * reports it disabled.
+     */
+    public static boolean isRankedEnabled() {
+        JsonObject info = lastServerInfo;
+        if (info == null || !info.has("rankedEnabled")) return true;
+        return info.get("rankedEnabled").getAsBoolean();
+    }
+
+    /**
      * Looks up the cached spectator load for an instance. Returns [count, max].
      * Returns null when the instance name is unknown or no info has arrived yet.
      */
