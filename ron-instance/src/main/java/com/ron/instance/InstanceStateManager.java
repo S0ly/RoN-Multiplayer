@@ -1,43 +1,17 @@
 package com.ron.instance;
 
 import com.google.gson.*;
+import com.ron.common.modes.ModeCatalog;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 public class InstanceStateManager {
 
-    // Fixed team modes: name -> total players (teamCount is always 2)
-    private static final Map<String, Integer> TEAM_MODES = Map.of(
-            "1v1", 2,
-            "2v2", 4,
-            "3v3", 6,
-            "4v4", 8
-    );
-
-    // Per-size FFA modes: name -> player count (each player is their own team)
-    private static final Map<String, Integer> FFA_MODES = Map.of(
-            "ffa_3", 3,
-            "ffa_4", 4,
-            "ffa_5", 5,
-            "ffa_6", 6,
-            "ffa_7", 7,
-            "ffa_8", 8
-    );
-
-    // Per-size coop modes: name -> player count (everyone on one team)
-    private static final Map<String, Integer> COOP_MODES = Map.of(
-            "coop_2", 2,
-            "coop_3", 3,
-            "coop_4", 4,
-            "coop_5", 5,
-            "coop_6", 6,
-            "coop_7", 7,
-            "coop_8", 8
-    );
+    // Supported modes (team / ffa / coop) live in the shared ModeCatalog so the
+    // instance and the proxy validate against the exact same set.
 
     private static volatile InstanceState state = InstanceState.IDLE;
     private static volatile String currentMap = "unknown";
@@ -135,60 +109,25 @@ public class InstanceStateManager {
         RonInstance.LOGGER.info("Scanned {} maps", availableMaps.size());
     }
 
-    private static final String ALLOWED_MODES_HINT =
-            "ffa_3..ffa_8, coop_2..coop_8, 1v1, 2v2, 3v3, 4v4";
-
     /**
-     * Validate a single mode entry against the whitelist:
-     *   - {@code ffa_<n>} with {@code n} ∈ {3, 4}: each player on their own team
-     *   - {@code coop_<n>} with {@code n} ∈ {2, 3, 4}: everyone on one team
-     *   - {@code 1v1}, {@code 2v2}, {@code 3v3}, {@code 4v4}: 2 teams of N
+     * Validate a single mode entry against the shared {@link ModeCatalog}. The
+     * mode name must be a known mode (team / ffa / coop) and its team/player
+     * layout in rtsmap.json must match the catalog's spec.
      *
      * Returns null and logs a warning when the mode is rejected.
      */
     private static ModeInfo parseMode(String folder, String modeName, int teamCount, int totalPlayers) {
-        String lower = modeName.toLowerCase();
-
-        Integer ffaPlayers = FFA_MODES.get(lower);
-        if (ffaPlayers != null) {
-            if (teamCount != ffaPlayers || totalPlayers != ffaPlayers) {
-                RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires {} solo teams of 1 player (got teams={}, players={}) — skipping",
-                        folder, modeName, ffaPlayers, teamCount, totalPlayers);
-                return null;
-            }
-            return new ModeInfo(modeName, ffaPlayers, teamCount);
-        }
-        if (lower.startsWith("ffa")) {
-            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid ffa mode '{}', expected ffa_<n> with n in 3..8 — skipping", folder, modeName);
+        ModeCatalog.ModeSpec spec = ModeCatalog.get(modeName);
+        if (spec == null) {
+            RonInstance.LOGGER.warn("rtsmap.json in {}: unsupported mode '{}' — allowed: {}", folder, modeName, ModeCatalog.namesHint());
             return null;
         }
-
-        Integer coopPlayers = COOP_MODES.get(lower);
-        if (coopPlayers != null) {
-            if (teamCount != 1 || totalPlayers != coopPlayers) {
-                RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires 1 team of {} players (got teams={}, players={}) — skipping",
-                        folder, modeName, coopPlayers, teamCount, totalPlayers);
-                return null;
-            }
-            return new ModeInfo(modeName, coopPlayers, 1);
-        }
-        if (lower.startsWith("coop")) {
-            RonInstance.LOGGER.warn("rtsmap.json in {}: invalid coop mode '{}', expected coop_<n> with n in 2..8 — skipping", folder, modeName);
+        if (teamCount != spec.teamCount() || totalPlayers != spec.players()) {
+            RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires {} teams totaling {} players (got teams={}, players={}) — skipping",
+                    folder, modeName, spec.teamCount(), spec.players(), teamCount, totalPlayers);
             return null;
         }
-
-        Integer expectedTotal = TEAM_MODES.get(lower);
-        if (expectedTotal != null) {
-            if (teamCount != 2 || totalPlayers != expectedTotal) {
-                RonInstance.LOGGER.warn("rtsmap.json in {}: '{}' requires 2 teams of {} players (got teams={}, players={}) — skipping",
-                        folder, modeName, expectedTotal / 2, teamCount, totalPlayers);
-                return null;
-            }
-            return new ModeInfo(modeName, expectedTotal, 2);
-        }
-
-        RonInstance.LOGGER.warn("rtsmap.json in {}: unsupported mode '{}' — allowed: {}", folder, modeName, ALLOWED_MODES_HINT);
-        return null;
+        return new ModeInfo(spec.name(), spec.players(), spec.teamCount());
     }
 
     private static MapInfo parseRtsMap(String folder, String json) {

@@ -54,6 +54,9 @@ public class InstanceTracker {
     private final Map<String, Long> lastPollTime = new ConcurrentHashMap<>();
     private final Map<String, Integer> consecutiveFailures = new ConcurrentHashMap<>();
 
+    // Network-wide mode allow-list (names). null = no filter, every mode allowed.
+    private volatile Set<String> enabledModes = null;
+
     private MessageHandler messageHandler;
     private PlayerRouter playerRouter;
     private ActiveMatchTracker activeMatchTracker;
@@ -74,6 +77,9 @@ public class InstanceTracker {
     public void setMatchService(MatchService matchService) { this.matchService = matchService; }
     public void setQueueMirror(QueueMirror queueMirror) { this.queueMirror = queueMirror; }
     public void setRankSyncService(RankSyncService rankSyncService) { this.rankSyncService = rankSyncService; }
+
+    /** Network-wide enabled-mode allow-list. null disables the filter (all modes allowed). */
+    public void setEnabledModes(Set<String> enabledModes) { this.enabledModes = enabledModes; }
 
     public void addInstance(String name, String rconHost, int rconPort, String rconPassword) {
         configs.put(name, new InstanceConfig(name, rconHost, rconPort, rconPassword));
@@ -279,10 +285,15 @@ public class InstanceTracker {
             String name = m.get("name").getAsString();
             List<ModeInfo> modes = new ArrayList<>();
             if (m.has("modes")) {
+                Set<String> allowed = enabledModes;
                 for (JsonElement modeEl : m.getAsJsonArray("modes")) {
                     JsonObject modeObj = modeEl.getAsJsonObject();
+                    String modeName = modeObj.get("name").getAsString();
+                    // Disabled network-wide: never enters the cache, so it can't be
+                    // offered for voting or picked by matchmaking.
+                    if (allowed != null && !allowed.contains(modeName)) continue;
                     modes.add(new ModeInfo(
-                        modeObj.get("name").getAsString(),
+                        modeName,
                         modeObj.get("players").getAsInt()
                     ));
                 }

@@ -151,6 +151,7 @@ public class RonProxy {
 
                 defaultConfig.add("instances", instances);
                 defaultConfig.add("rankSync", RankSyncConfig.defaultStub());
+                defaultConfig.add("gameModes", ModeFilterConfig.defaultStub());
                 Files.writeString(configFile, GSON.toJson(defaultConfig));
                 logger.info("Created default config at {}", configFile);
                 logger.warn("Default RCON passwords are 'changeme' — edit config.json before exposing this proxy");
@@ -183,6 +184,24 @@ public class RonProxy {
             if (syncConfig.enabled && statsDAO != null) {
                 rankSyncService = new RankSyncService(syncConfig, statsDAO, logger);
                 rankSyncService.start();
+            }
+
+            // Network-wide mode switchboard. Apply before instances register so the
+            // filter is in place before the first poll fetches their maps.
+            ModeFilterConfig modeFilter = ModeFilterConfig.fromJson(config);
+            instanceTracker.setEnabledModes(modeFilter.enabledModes());
+            if (!modeFilter.present()) {
+                // Legacy config without a gameModes block: keep every mode enabled and
+                // write the full switchboard back so the operator can edit it.
+                config.add("gameModes", ModeFilterConfig.defaultStub());
+                try {
+                    Files.writeString(configFile, GSON.toJson(config));
+                    logger.info("Added default 'gameModes' switchboard to config.json (all modes enabled)");
+                } catch (IOException e) {
+                    logger.error("Failed to write 'gameModes' block to config.json", e);
+                }
+            } else {
+                logger.info("Mode switchboard: {} modes enabled network-wide", modeFilter.enabledModes().size());
             }
 
             if (config.has("instances")) {
