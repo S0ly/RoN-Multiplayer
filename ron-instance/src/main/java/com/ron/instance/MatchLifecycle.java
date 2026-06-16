@@ -459,8 +459,8 @@ public class MatchLifecycle {
 
     // Alliance locking and fog of war are decided by the lobby/proxy (host choice
     // in private lobbies; defaults otherwise) and pushed via /ron-setalliancelock
-    // and /ron-setfog. Defaults when no override arrives: alliances locked even in
-    // FFA, fog of war disabled.
+    // and /ron-setfog. Defaults when no override arrives: alliances locked except
+    // in FFA (which defaults unlocked), fog of war disabled.
     private static Boolean allianceLockOverride = null;
     private static Boolean fogOfWarOverride = null;
 
@@ -470,7 +470,7 @@ public class MatchLifecycle {
     }
 
     public static boolean effectiveAllianceLock() {
-        return allianceLockOverride != null ? allianceLockOverride : true;
+        return allianceLockOverride != null ? allianceLockOverride : !isFFA();
     }
 
     public static void setFogOfWarOverride(Boolean value) {

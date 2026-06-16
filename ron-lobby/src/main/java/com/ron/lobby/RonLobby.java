@@ -40,6 +40,7 @@ public class RonLobby extends JavaPlugin {
             getConfig().getInt("queue.fill-seconds", 120),
             getConfig().getInt("queue.vote-seconds", 60)
         );
+        matchQueue.setPublicQueueEnabled(getConfig().getBoolean("queue.public-enabled", true));
 
         getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.TRANSFER);
         getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.MATCH);

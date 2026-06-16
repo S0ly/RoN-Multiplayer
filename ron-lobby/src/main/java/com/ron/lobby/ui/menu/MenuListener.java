@@ -5,7 +5,7 @@ import com.ron.lobby.messaging.LobbyMessaging;
 import com.ron.lobby.queue.MatchQueue;
 import com.ron.lobby.queue.MatchQueue.MapOption;
 import com.ron.lobby.queue.MatchQueue.ModeOption;
-import com.ron.lobby.queue.PrivateLobbyView;
+import com.ron.lobby.queue.CustomLobbyView;
 import com.ron.lobby.ui.menu.RonMenuHolder.MenuId;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -131,10 +131,10 @@ public class MenuListener implements Listener {
                 if (id == MenuId.VOTE_MODES) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
                             () -> MenuService.openVote(player), 1L);
-                } else if (id == MenuId.PRIVATE_MAP_SELECT) {
+                } else if (id == MenuId.CUSTOM_MAP_SELECT) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openPrivate(player), 1L);
-                } else if (id == MenuId.PRIVATE_MODE_SELECT) {
+                            () -> MenuService.openCustom(player), 1L);
+                } else if (id == MenuId.CUSTOM_MODE_SELECT) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
                             () -> MenuService.openHostMapSelect(player), 1L);
                 } else {
@@ -142,71 +142,81 @@ public class MenuListener implements Listener {
                             () -> MenuService.openHub(player), 1L);
                 }
             }
-            case "open-private" -> MenuService.openPrivate(player);
+            case "open-custom" -> MenuService.openCustom(player);
             case "open-matches" -> MenuService.openMatches(player);
             case "open-leaderboard" -> MenuService.openLeaderboard(player);
             case "open-rank" -> {
                 player.closeInventory();
                 MenuService.openRank(player);
             }
-            case "private-create" -> {
-                String code = q.createPrivateLobby(player.getUniqueId(), player.getName());
+            case "custom-create" -> {
+                String code = q.createCustomLobby(player.getUniqueId(), player.getName());
                 if (code != null) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openPrivate(player), 2L);
+                            () -> MenuService.openCustom(player), 2L);
                 }
             }
-            case "private-join" -> ChatPrompt.prompt(player, "Type the lobby code:",
+            case "custom-join" -> ChatPrompt.prompt(player, "Type the lobby code:",
                     code -> {
                         String upper = code.toUpperCase();
-                        q.joinPrivateLobby(player.getUniqueId(), player.getName(), upper);
-                        if (q.getPrivateLobbyView(player.getUniqueId()) != null) {
+                        q.joinCustomLobby(player.getUniqueId(), player.getName(), upper);
+                        if (q.getCustomLobbyView(player.getUniqueId()) != null) {
                             player.sendMessage(ChatColor.GREEN + "[RoN] Joined lobby " + upper + ".");
                             Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                                    () -> MenuService.openPrivate(player), 2L);
+                                    () -> MenuService.openCustom(player), 2L);
                         }
-                        // Invalid-code path is already handled in joinPrivateLobby
+                        // Invalid-code path is already handled in joinCustomLobby
                         // via tellPlayer "Invalid lobby code".
                     });
-            case "private-leave" -> {
+            case "custom-leave" -> {
                 q.leaveQueue(player.getUniqueId(), player.getName());
                 player.closeInventory();
             }
-            case "private-start" -> {
-                q.startPrivate(player.getUniqueId());
+            case "custom-start" -> {
+                q.startCustom(player.getUniqueId());
                 player.closeInventory();
             }
-            case "private-select-map" -> {
+            case "custom-select-map" -> {
                 player.sendMessage(ChatColor.GRAY + "[RoN] Fetching maps...");
                 q.requestMapsForHost(player.getUniqueId());
             }
-            case "private-select-mode" -> {
-                PrivateLobbyView v = q.getPrivateLobbyView(player.getUniqueId());
+            case "custom-select-mode" -> {
+                CustomLobbyView v = q.getCustomLobbyView(player.getUniqueId());
                 if (v == null || v.selectedMapFolder() == null) {
                     player.sendMessage(ChatColor.RED + "[RoN] Pick a map first.");
                 } else {
                     MenuService.openHostModeSelect(player, v.selectedMapFolder());
                 }
             }
-            case "private-pick-map" -> {
+            case "custom-pick-map" -> {
                 if (payload != null) {
                     q.selectHostMap(player.getUniqueId(), payload);
                     MenuService.openHostModeSelect(player, payload);
                 }
             }
-            case "private-pick-mode" -> {
+            case "custom-pick-mode" -> {
                 if (payload != null) {
                     int slash = payload.indexOf('/');
                     if (slash > 0) {
                         q.selectHostMode(player.getUniqueId(),
                                 payload.substring(0, slash), payload.substring(slash + 1));
                         Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                                () -> MenuService.openPrivate(player), 1L);
+                                () -> MenuService.openCustom(player), 1L);
                     }
                 }
             }
-            case "private-toggle-alliance" -> q.toggleHostAllianceLock(player.getUniqueId());
-            case "private-toggle-fog" -> q.toggleHostFog(player.getUniqueId());
+            case "custom-toggle-alliance" -> q.toggleHostAllianceLock(player.getUniqueId());
+            case "custom-toggle-fog" -> q.toggleHostFog(player.getUniqueId());
+            case "custom-toggle-visibility" -> q.toggleVisibility(player.getUniqueId());
+            case "custom-join-public" -> {
+                if (payload != null) {
+                    q.joinPublicLobby(player.getUniqueId(), player.getName(), payload);
+                    if (q.getCustomLobbyView(player.getUniqueId()) != null) {
+                        Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
+                                () -> MenuService.openCustom(player), 2L);
+                    }
+                }
+            }
             case "vote-random" -> {
                 List<MapOption> opts = q.getVoteMapOptions();
                 int randomIdx = opts.size() + 1;

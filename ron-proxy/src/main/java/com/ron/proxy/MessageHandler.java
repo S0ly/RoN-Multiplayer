@@ -215,7 +215,8 @@ public class MessageHandler {
 
     private void handleGetMaps(JsonObject json) {
         int playerCount = json.get("playerCount").getAsInt();
-        List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(playerCount, Integer.MAX_VALUE);
+        boolean customLobby = json.has("customLobby") && json.get("customLobby").getAsBoolean();
+        List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(playerCount, Integer.MAX_VALUE, customLobby);
 
         JsonObject response = new JsonObject();
         response.addProperty("type", Type.MAP_OPTIONS);

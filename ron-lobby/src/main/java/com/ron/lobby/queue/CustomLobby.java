@@ -5,10 +5,14 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-class PrivateLobby {
+class CustomLobby {
     final String code;
     final UUID host;
     final Set<UUID> players = new LinkedHashSet<>();
+
+    // Visibility: private (join by code only) or public (also joinable by clicking
+    // the host's head in the Custom Lobby menu). Private by default.
+    boolean isPublic = false;
 
     // Host-controlled match setup (chosen via the lobby menu, no voting).
     String selectedMapFolder;
@@ -20,7 +24,7 @@ class PrivateLobby {
     // Maps + compatible modes fetched for the current lobby size (host browsing).
     List<MatchQueue.MapOption> cachedMapOptions = List.of();
 
-    PrivateLobby(String code, UUID host) {
+    CustomLobby(String code, UUID host) {
         this.code = code;
         this.host = host;
     }

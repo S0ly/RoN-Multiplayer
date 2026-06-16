@@ -12,8 +12,8 @@ import org.jetbrains.annotations.NotNull;
  */
 public class RonMenuHolder implements InventoryHolder {
 
-    public enum MenuId { HUB, PRIVATE_LOBBY, VOTE, VOTE_MODES, MATCHES, LEADERBOARD,
-            PRIVATE_MAP_SELECT, PRIVATE_MODE_SELECT }
+    public enum MenuId { HUB, CUSTOM_LOBBY, VOTE, VOTE_MODES, MATCHES, LEADERBOARD,
+            CUSTOM_MAP_SELECT, CUSTOM_MODE_SELECT }
 
     private final MenuId menuId;
     private final String payload;

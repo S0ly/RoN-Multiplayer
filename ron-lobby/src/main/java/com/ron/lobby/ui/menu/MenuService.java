@@ -9,7 +9,7 @@ import com.ron.lobby.messaging.LobbyMessaging;
 import com.ron.lobby.queue.MatchQueue;
 import com.ron.lobby.queue.MatchQueue.MapOption;
 import com.ron.lobby.queue.MatchQueue.ModeOption;
-import com.ron.lobby.queue.PrivateLobbyView;
+import com.ron.lobby.queue.CustomLobbyView;
 import com.ron.lobby.ui.LobbyUI;
 import com.ron.lobby.ui.UiSettings;
 import org.bukkit.Bukkit;
@@ -47,18 +47,13 @@ public final class MenuService {
         fillBorder45(inv);
 
         MatchQueue q = RonLobby.matchQueue;
-        boolean inQueue = q.isInAnyQueue(player.getUniqueId());
 
-        inv.setItem(10, MenuItems.action(Material.CLOCK,
-                ChatColor.YELLOW + (inQueue ? "Leave Queue" : "Join Queue"),
-                "queue-toggle", null,
-                ChatColor.GRAY + "Public queue: " + ChatColor.WHITE + q.getPublicQueueSize() + " players",
-                ChatColor.GRAY + "Click to " + (inQueue ? "leave" : "join")));
+        setQueueTile(inv, q, player);
 
         inv.setItem(12, MenuItems.action(Material.CHEST,
-                ChatColor.GOLD + "Private Lobby",
-                "open-private", null,
-                ChatColor.GRAY + "Create or join a private lobby"));
+                ChatColor.GOLD + "Custom Lobby",
+                "open-custom", null,
+                ChatColor.GRAY + "Create or join a custom lobby"));
 
         boolean ranked = LobbyMessaging.isRankedEnabled();
 
@@ -155,50 +150,82 @@ public final class MenuService {
         return "READY".equals(status) ? "PREPARING" : status;
     }
 
-    // ---------- Private Lobby ----------
+    // ---------- Custom Lobby ----------
 
-    public static void openPrivate(Player player) {
-        PrivateLobbyView lobby = RonLobby.matchQueue.getPrivateLobbyView(player.getUniqueId());
+    public static void openCustom(Player player) {
+        CustomLobbyView lobby = RonLobby.matchQueue.getCustomLobbyView(player.getUniqueId());
         if (lobby == null) {
-            openPrivateNotInLobby(player);
+            openCustomNotInLobby(player);
         } else {
-            openPrivateInLobby(player, lobby);
+            openCustomInLobby(player, lobby);
         }
     }
 
-    private static void openPrivateNotInLobby(Player player) {
-        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_LOBBY);
-        Inventory inv = holder.createInventory(27, ChatColor.GOLD + "Private Lobby");
+    private static void openCustomNotInLobby(Player player) {
+        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.CUSTOM_LOBBY);
+        Inventory inv = holder.createInventory(45, ChatColor.GOLD + "Custom Lobby");
         fillBorder(inv);
 
-        inv.setItem(12, MenuItems.action(Material.EMERALD,
+        inv.setItem(11, MenuItems.action(Material.EMERALD,
                 ChatColor.GREEN + "Create Lobby",
-                "private-create", null,
+                "custom-create", null,
                 ChatColor.GRAY + "Generates a code to share"));
 
-        inv.setItem(14, MenuItems.action(Material.ANVIL,
+        inv.setItem(15, MenuItems.action(Material.ANVIL,
                 ChatColor.AQUA + "Join by Code",
-                "private-join", null,
+                "custom-join", null,
                 ChatColor.GRAY + "Type the code in chat"));
 
-        inv.setItem(18, MenuItems.back());
+        // Public lobbies — click a host's head to join directly (no code needed).
+        List<CustomLobbyView> publics = RonLobby.matchQueue.getPublicLobbies();
+        if (publics.isEmpty()) {
+            inv.setItem(31, MenuItems.action(Material.GRAY_DYE,
+                    ChatColor.GRAY + "No public lobbies",
+                    "noop", null,
+                    ChatColor.GRAY + "Create one or join by code"));
+        } else {
+            int slot = 19;
+            for (CustomLobbyView lobby : publics) {
+                if (slot == 26) slot = 28;   // jump over the row border
+                if (slot > 34) break;
+                inv.setItem(slot, buildPublicLobbyHead(lobby));
+                slot++;
+            }
+        }
+
+        inv.setItem(40, MenuItems.back());
 
         player.openInventory(inv);
     }
 
-    private static void openPrivateInLobby(Player player, PrivateLobbyView lobby) {
-        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_LOBBY);
-        Inventory inv = holder.createInventory(36, ChatColor.GOLD + "Private Lobby — " + lobby.code());
-        renderPrivateLobby(inv, lobby, player);
+    private static ItemStack buildPublicLobbyHead(CustomLobbyView lobby) {
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "Host: " + ChatColor.WHITE + nameOf(lobby.host()));
+        lore.add(ChatColor.GRAY + "Players: " + ChatColor.WHITE + lobby.members().size());
+        if (lobby.selectedMapName() != null) {
+            lore.add(ChatColor.GRAY + "Map: " + ChatColor.WHITE + lobby.selectedMapName()
+                    + (lobby.selectedMode() != null ? ChatColor.GRAY + " (" + lobby.selectedMode() + ")" : ""));
+        }
+        lore.add("");
+        lore.add(ChatColor.GREEN + "Click to join");
+        return MenuItems.playerHead(lobby.host(),
+                ChatColor.AQUA + nameOf(lobby.host()) + ChatColor.GRAY + "'s lobby",
+                "custom-join-public", lobby.code(), lore);
+    }
+
+    private static void openCustomInLobby(Player player, CustomLobbyView lobby) {
+        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.CUSTOM_LOBBY);
+        Inventory inv = holder.createInventory(36, ChatColor.GOLD + "Custom Lobby — " + lobby.code());
+        renderCustomLobby(inv, lobby, player);
         player.openInventory(inv);
     }
 
     /**
-     * Paint the full private-lobby view in place. Used for both initial open and
+     * Paint the full custom-lobby view in place. Used for both initial open and
      * live refresh. The host gets the configuration controls (map → mode → optional
      * rules → start); everyone gets the member list + leave/back.
      */
-    private static void renderPrivateLobby(Inventory inv, PrivateLobbyView lobby, Player player) {
+    private static void renderCustomLobby(Inventory inv, CustomLobbyView lobby, Player player) {
         // Repaint the border first so leftover host-control items are cleared.
         fillBorder(inv);
         for (int s = 10; s <= 16; s++) inv.setItem(s, null);
@@ -210,7 +237,9 @@ public final class MenuService {
                 ChatColor.YELLOW + "Code: " + ChatColor.WHITE + ChatColor.BOLD + lobby.code(),
                 "noop", null,
                 ChatColor.GRAY + "Share with friends",
-                ChatColor.GRAY + "Host: " + ChatColor.WHITE + nameOf(lobby.host())));
+                ChatColor.GRAY + "Host: " + ChatColor.WHITE + nameOf(lobby.host()),
+                ChatColor.GRAY + "Visibility: " + (lobby.isPublic()
+                        ? ChatColor.GREEN + "Public" : ChatColor.YELLOW + "Private")));
 
         // Members 10..16 then 19..25
         int slot = 10;
@@ -228,26 +257,26 @@ public final class MenuService {
 
         inv.setItem(35, MenuItems.action(Material.BARRIER,
                 ChatColor.RED + "Leave Lobby",
-                "private-leave", null,
+                "custom-leave", null,
                 ChatColor.GRAY + (isHost ? "Disbands the lobby" : "Removes you from this lobby")));
         inv.setItem(27, MenuItems.back());
     }
 
     /** Host-only bottom row: Select Map (28) → Select Mode (29) → optional rules (30/31) → Start (33). */
-    private static void renderHostControls(Inventory inv, PrivateLobbyView lobby) {
+    private static void renderHostControls(Inventory inv, CustomLobbyView lobby) {
         boolean hasMap = lobby.selectedMapFolder() != null;
         boolean hasMode = lobby.selectedMode() != null;
 
         inv.setItem(28, MenuItems.action(Material.FILLED_MAP,
                 ChatColor.AQUA + "Select Map",
-                "private-select-map", null,
+                "custom-select-map", null,
                 ChatColor.GRAY + "Map: " + ChatColor.WHITE + (hasMap ? lobby.selectedMapName() : "none"),
                 ChatColor.GRAY + "Click to choose"));
 
         if (hasMap) {
             inv.setItem(29, MenuItems.action(MenuItems.modeIcon(lobby.selectedMode()),
                     ChatColor.AQUA + "Select Game Mode",
-                    "private-select-mode", null,
+                    "custom-select-mode", null,
                     ChatColor.GRAY + "Mode: " + ChatColor.WHITE + (hasMode ? lobby.selectedMode() : "none"),
                     ChatColor.GRAY + "Click to choose"));
         } else {
@@ -264,7 +293,7 @@ public final class MenuService {
         if (hasMode) {
             inv.setItem(31, MenuItems.action(fog ? Material.SCULK_SENSOR : Material.GLOWSTONE_DUST,
                     (fog ? ChatColor.GREEN : ChatColor.GRAY) + "Fog of War: " + (fog ? "ON" : "OFF"),
-                    "private-toggle-fog", null,
+                    "custom-toggle-fog", null,
                     ChatColor.GRAY + "Optional rule — default OFF",
                     ChatColor.GRAY + "Click to toggle"));
         } else {
@@ -280,8 +309,8 @@ public final class MenuService {
             boolean lock = lobby.allianceLock();
             inv.setItem(30, MenuItems.action(lock ? Material.SHIELD : Material.IRON_DOOR,
                     (lock ? ChatColor.GREEN : ChatColor.GRAY) + "Lock Alliances: " + (lock ? "ON" : "OFF"),
-                    "private-toggle-alliance", null,
-                    ChatColor.GRAY + "FFA only — default ON",
+                    "custom-toggle-alliance", null,
+                    ChatColor.GRAY + "FFA only — default OFF",
                     ChatColor.GRAY + "Click to toggle"));
         } else {
             inv.setItem(30, MenuItems.action(Material.GRAY_DYE,
@@ -290,6 +319,14 @@ public final class MenuService {
                     ChatColor.GRAY + "FFA only — locked in team/coop",
                     ChatColor.RED + (hasMode ? "Always locked for this mode" : "Select an FFA mode to change")));
         }
+
+        // Visibility — always togglable; controls how others can join (slot 32).
+        boolean pub = lobby.isPublic();
+        inv.setItem(32, MenuItems.action(pub ? Material.ENDER_EYE : Material.ENDER_PEARL,
+                (pub ? ChatColor.GREEN : ChatColor.YELLOW) + "Visibility: " + (pub ? "Public" : "Private"),
+                "custom-toggle-visibility", null,
+                ChatColor.GRAY + (pub ? "Anyone can join from the menu" : "Code required to join"),
+                ChatColor.GRAY + "Click to toggle"));
 
         boolean countOk = hasMode && lobby.members().size() == lobby.selectedModePlayers();
         boolean canStart = hasMap && hasMode && countOk;
@@ -302,19 +339,19 @@ public final class MenuService {
         else startLore.add(ChatColor.GREEN + "Ready — click to start");
         inv.setItem(33, MenuItems.action(Material.FIRE_CHARGE,
                 (canStart ? ChatColor.GREEN : ChatColor.GRAY) + "Start",
-                canStart ? "private-start" : "noop", null,
+                canStart ? "custom-start" : "noop", null,
                 startLore.toArray(new String[0])));
     }
 
     // ---------- Host map / mode selection ----------
 
     public static void openHostMapSelect(Player player) {
-        PrivateLobbyView lobby = RonLobby.matchQueue.getPrivateLobbyView(player.getUniqueId());
+        CustomLobbyView lobby = RonLobby.matchQueue.getCustomLobbyView(player.getUniqueId());
         if (lobby == null || !lobby.host().equals(player.getUniqueId())) {
             player.sendMessage(ChatColor.RED + "[RoN] Only the host can pick the map.");
             return;
         }
-        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_MAP_SELECT);
+        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.CUSTOM_MAP_SELECT);
         Inventory inv = holder.createInventory(54, ChatColor.GOLD + "Select a Map");
         for (int i = 0; i < 9; i++) inv.setItem(i, MenuItems.border());
         for (int i = 45; i < 54; i++) inv.setItem(i, MenuItems.border());
@@ -352,11 +389,11 @@ public final class MenuService {
                           : ChatColor.YELLOW + "Click to choose a mode");
         return MenuItems.action(Material.FILLED_MAP,
                 (selected ? ChatColor.GREEN : ChatColor.WHITE) + map.name(),
-                "private-pick-map", map.folder(), lore);
+                "custom-pick-map", map.folder(), lore);
     }
 
     public static void openHostModeSelect(Player player, String mapFolder) {
-        PrivateLobbyView lobby = RonLobby.matchQueue.getPrivateLobbyView(player.getUniqueId());
+        CustomLobbyView lobby = RonLobby.matchQueue.getCustomLobbyView(player.getUniqueId());
         if (lobby == null || !lobby.host().equals(player.getUniqueId())) {
             player.sendMessage(ChatColor.RED + "[RoN] Only the host can pick the mode.");
             return;
@@ -368,7 +405,7 @@ public final class MenuService {
             return;
         }
 
-        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.PRIVATE_MODE_SELECT, mapFolder);
+        RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.CUSTOM_MODE_SELECT, mapFolder);
         Inventory inv = holder.createInventory(27, ChatColor.GOLD + "Modes — " + map.name());
         fillBorder(inv);
 
@@ -387,7 +424,7 @@ public final class MenuService {
     private static ItemStack buildHostModeItem(String mapFolder, ModeOption mode, boolean selected) {
         return MenuItems.action(MenuItems.modeIcon(mode.name()),
                 (selected ? ChatColor.GREEN : ChatColor.AQUA) + mode.name(),
-                "private-pick-mode", mapFolder + "/" + mode.name(),
+                "custom-pick-mode", mapFolder + "/" + mode.name(),
                 ChatColor.GRAY + "" + mode.players() + " players",
                 "",
                 selected ? ChatColor.GREEN + "Selected" : ChatColor.GREEN + "Click to choose");
@@ -593,12 +630,12 @@ public final class MenuService {
         VoteBossBar.stopAll();
     }
 
-    // ---------- Live refresh for Hub + Private Lobby ----------
+    // ---------- Live refresh for Hub + Custom Lobby ----------
 
     /**
-     * Re-renders open Hub and Private Lobby inventories in place. Called after
+     * Re-renders open Hub and Custom Lobby inventories in place. Called after
      * any state mutation that could change what those menus display: queue
-     * size, private lobby member list, instance status push.
+     * size, custom lobby member list, instance status push.
      */
     public static void refreshLobbyMenus() {
         for (Player p : Bukkit.getOnlinePlayers()) {
@@ -606,32 +643,44 @@ public final class MenuService {
             if (!(top.getHolder() instanceof RonMenuHolder holder)) continue;
             switch (holder.menuId()) {
                 case HUB -> rebuildHub(top, p);
-                case PRIVATE_LOBBY -> rebuildPrivate(top, p);
+                case CUSTOM_LOBBY -> rebuildCustom(top, p);
                 default -> { /* others use refreshVoteMenus or open on demand */ }
             }
         }
     }
 
     private static void rebuildHub(Inventory inv, Player player) {
-        MatchQueue q = RonLobby.matchQueue;
+        setQueueTile(inv, RonLobby.matchQueue, player);
+        fillStatusRow(inv, player);
+    }
+
+    /** Hub slot 10: the public-queue join/leave tile, greyed out when the queue is disabled. */
+    private static void setQueueTile(Inventory inv, MatchQueue q, Player player) {
+        if (!q.isPublicQueueEnabled()) {
+            inv.setItem(10, MenuItems.action(Material.GRAY_DYE,
+                    ChatColor.GRAY + "Public Queue",
+                    "noop", null,
+                    ChatColor.RED + "Public matchmaking is disabled",
+                    ChatColor.GRAY + "Use a custom lobby instead"));
+            return;
+        }
         boolean inQueue = q.isInAnyQueue(player.getUniqueId());
         inv.setItem(10, MenuItems.action(Material.CLOCK,
                 ChatColor.YELLOW + (inQueue ? "Leave Queue" : "Join Queue"),
                 "queue-toggle", null,
                 ChatColor.GRAY + "Public queue: " + ChatColor.WHITE + q.getPublicQueueSize() + " players",
                 ChatColor.GRAY + "Click to " + (inQueue ? "leave" : "join")));
-        fillStatusRow(inv, player);
     }
 
-    private static void rebuildPrivate(Inventory inv, Player player) {
-        PrivateLobbyView lobby = RonLobby.matchQueue.getPrivateLobbyView(player.getUniqueId());
+    private static void rebuildCustom(Inventory inv, Player player) {
+        CustomLobbyView lobby = RonLobby.matchQueue.getCustomLobbyView(player.getUniqueId());
         if (lobby == null || inv.getSize() != 36) {
             // Layout no longer matches (lobby disbanded or we joined one) —
             // re-open so the player gets the right inventory size.
-            openPrivate(player);
+            openCustom(player);
             return;
         }
-        renderPrivateLobby(inv, lobby, player);
+        renderCustomLobby(inv, lobby, player);
     }
 
     // ---------- Matches ----------

@@ -179,10 +179,11 @@ public class LobbyMessaging implements PluginMessageListener {
         sendPluginMessage(Channels.TRANSFER, gson.toJson(json));
     }
 
-    public static void sendGetMaps(int playerCount) {
+    public static void sendGetMaps(int playerCount, boolean customLobby) {
         JsonObject json = new JsonObject();
         json.addProperty("action", Action.GET_MAPS);
         json.addProperty("playerCount", playerCount);
+        json.addProperty("customLobby", customLobby);
         sendPluginMessage(Channels.MATCH, gson.toJson(json));
     }
 

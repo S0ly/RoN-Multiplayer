@@ -521,7 +521,7 @@ public class InstanceTracker {
      * Find compatible maps across all available instances.
      * Returns maps that have at least one mode supporting the given player count.
      */
-    public List<MapWithModes> findCompatibleMaps(int playerCount, int limit) {
+    public List<MapWithModes> findCompatibleMaps(int playerCount, int limit, boolean allowFfaCoop) {
         Map<String, MapWithModes> seen = new LinkedHashMap<>();
         Map<String, InstanceInfo> snap = Map.copyOf(instances);
 
@@ -534,9 +534,12 @@ public class InstanceTracker {
 
                 List<ModeInfo> compatible = new ArrayList<>();
                 for (ModeInfo mode : map.modes()) {
-                    if (playerCount == mode.players()) {
-                        compatible.add(mode);
+                    if (playerCount != mode.players()) continue;
+                    if (!allowFfaCoop) {
+                        String m = mode.name().toLowerCase();
+                        if (m.startsWith("ffa_") || m.startsWith("coop_")) continue;
                     }
+                    compatible.add(mode);
                 }
 
                 if (!compatible.isEmpty()) {

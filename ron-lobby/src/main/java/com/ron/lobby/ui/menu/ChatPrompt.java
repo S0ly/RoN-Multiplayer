@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
- * Simple "type something in chat" prompt — used for entering a private lobby
+ * Simple "type something in chat" prompt — used for entering a custom lobby
  * code without needing an anvil GUI. Pending prompts are stored per-player and
  * consume the player's next chat message.
  */

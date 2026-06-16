@@ -30,9 +30,12 @@ public class MatchQueue implements Listener {
     private final RonLobby plugin;
     private final VoteSession voteSession;
 
-    // Phase machine — public queue is the primary driver, private lobbies share the lock.
+    // Phase machine — public queue is the primary driver, custom lobbies share the lock.
     private enum Phase { OPEN, FILLING, LOCKED_VOTING, WAITING_FOR_INSTANCE }
     private Phase phase = Phase.OPEN;
+
+    // Public matchmaking queue can be disabled entirely (custom lobbies only).
+    private boolean publicQueueEnabled = true;
 
     // Public queue: open → fill → lock → vote → transfer
     private final Set<UUID> publicQueue = new LinkedHashSet<>();
@@ -45,19 +48,19 @@ public class MatchQueue implements Listener {
     private int fillSeconds = DEFAULT_FILL_SECONDS;
     private int voteSeconds = DEFAULT_VOTE_SECONDS;
 
-    // Private lobbies: code -> lobby
-    private final Map<String, PrivateLobby> privateLobbies = new ConcurrentHashMap<>();
+    // Custom lobbies: code -> lobby
+    private final Map<String, CustomLobby> customLobbies = new ConcurrentHashMap<>();
     private final Map<UUID, String> playerLobby = new ConcurrentHashMap<>();
 
-    // Host currently browsing maps for their private lobby (awaiting MAP_OPTIONS).
+    // Host currently browsing maps for their custom lobby (awaiting MAP_OPTIONS).
     // Set by requestMapsForHost, consumed in onMapOptions — keeps the host's map
     // fetch from being mistaken for a public vote.
     private volatile UUID pendingHostBrowse = null;
 
-    // Pending match state (shared across public/private — only one match at a time)
+    // Pending match state (shared across public/custom — only one match at a time)
     private String pendingInstance = null;
     private Set<UUID> pendingPlayers = null;
-    private boolean pendingPrivateMatch = false;
+    private boolean pendingCustomMatch = false;
     private int pendingMin = 0;
     private String pendingMapName = null;
     private String pendingMode = null;
@@ -86,6 +89,9 @@ public class MatchQueue implements Listener {
         if (voteSeconds > 0) this.voteSeconds = voteSeconds;
     }
 
+    public void setPublicQueueEnabled(boolean enabled) { this.publicQueueEnabled = enabled; }
+    public boolean isPublicQueueEnabled() { return publicQueueEnabled; }
+
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
@@ -95,6 +101,10 @@ public class MatchQueue implements Listener {
     // --- Public Queue ---
 
     public void joinPublicQueue(UUID uuid, String name) {
+        if (!publicQueueEnabled) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] Public matchmaking is disabled — create a custom lobby instead.");
+            return;
+        }
         if (availableInstances <= 0 && phase != Phase.WAITING_FOR_INSTANCE) {
             tellPlayer(uuid, ChatColor.RED + "[RoN] No game servers available right now.");
             return;
@@ -132,31 +142,51 @@ public class MatchQueue implements Listener {
 
     public int getFillSecondsRemaining() { return fillSecondsRemaining; }
 
-    // --- Private Lobbies ---
+    // --- Custom Lobbies ---
 
-    public String createPrivateLobby(UUID host, String name) {
+    public String createCustomLobby(UUID host, String name) {
         if (availableInstances <= 0 && phase != Phase.WAITING_FOR_INSTANCE) {
             tellPlayer(host, ChatColor.RED + "[RoN] No game servers available right now.");
             return null;
         }
         String code = generateCode();
-        PrivateLobby lobby = new PrivateLobby(code, host);
+        CustomLobby lobby = new CustomLobby(code, host);
         lobby.players.add(host);
-        privateLobbies.put(code, lobby);
+        customLobbies.put(code, lobby);
         playerLobby.put(host, code);
-        broadcastToLobby(lobby, name + " created a private lobby. Code: " + code);
+        broadcastToLobby(lobby, name + " created a custom lobby. Code: " + code);
         publishState();
         return code;
     }
 
-    public void joinPrivateLobby(UUID uuid, String name, String code) {
-        PrivateLobby lobby = privateLobbies.get(code);
+    public void joinCustomLobby(UUID uuid, String name, String code) {
+        CustomLobby lobby = customLobbies.get(code);
         if (lobby == null) {
             tellPlayer(uuid, ChatColor.RED + "[RoN] Invalid lobby code.");
             return;
         }
+        addToLobby(lobby, uuid, name);
+        publishState();
+    }
+
+    /** Join a custom lobby by clicking the host's head — only works for public lobbies. */
+    public void joinPublicLobby(UUID uuid, String name, String code) {
+        CustomLobby lobby = customLobbies.get(code);
+        if (lobby == null) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] That lobby no longer exists.");
+            return;
+        }
+        if (!lobby.isPublic) {
+            tellPlayer(uuid, ChatColor.RED + "[RoN] That lobby is private — you need its code.");
+            return;
+        }
+        addToLobby(lobby, uuid, name);
+        publishState();
+    }
+
+    private void addToLobby(CustomLobby lobby, UUID uuid, String name) {
         lobby.players.add(uuid);
-        playerLobby.put(uuid, code);
+        playerLobby.put(uuid, lobby.code);
         broadcastToLobby(lobby, name + " joined the lobby! (" + lobby.players.size() + " players)");
 
         if (lobby.players.size() >= 2) {
@@ -165,12 +195,28 @@ public class MatchQueue implements Listener {
                 hostPlayer.sendMessage(ChatColor.GREEN + "[RoN] Lobby is ready — click Start to begin.");
             }
         }
+    }
+
+    /** Toggle a lobby between private (code-only) and public (joinable from the menu). */
+    public void toggleVisibility(UUID host) {
+        CustomLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) return;
+        lobby.isPublic = !lobby.isPublic;
         publishState();
+    }
+
+    /** Snapshot of every public custom lobby, for the join-by-head browse menu. */
+    public List<CustomLobbyView> getPublicLobbies() {
+        List<CustomLobbyView> out = new ArrayList<>();
+        for (CustomLobby lobby : customLobbies.values()) {
+            if (lobby.isPublic) out.add(viewOf(lobby));
+        }
+        return out;
     }
 
     /** Host clicked "Select Map" — fetch maps compatible with the current lobby size. */
     public void requestMapsForHost(UUID host) {
-        PrivateLobby lobby = lobbyOf(host);
+        CustomLobby lobby = lobbyOf(host);
         if (lobby == null || !lobby.host.equals(host)) {
             tellPlayer(host, ChatColor.RED + "[RoN] Only the lobby host can configure the match.");
             return;
@@ -180,11 +226,11 @@ public class MatchQueue implements Listener {
             return;
         }
         pendingHostBrowse = host;
-        LobbyMessaging.sendGetMaps(lobby.players.size());
+        LobbyMessaging.sendGetMaps(lobby.players.size(), true);
     }
 
     public void selectHostMap(UUID host, String folder) {
-        PrivateLobby lobby = lobbyOf(host);
+        CustomLobby lobby = lobbyOf(host);
         if (lobby == null || !lobby.host.equals(host)) return;
         MapOption map = lobby.cachedMapOptions.stream()
                 .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
@@ -203,7 +249,7 @@ public class MatchQueue implements Listener {
     }
 
     public void selectHostMode(UUID host, String folder, String modeName) {
-        PrivateLobby lobby = lobbyOf(host);
+        CustomLobby lobby = lobbyOf(host);
         if (lobby == null || !lobby.host.equals(host)) return;
         if (lobby.selectedMapFolder == null || !lobby.selectedMapFolder.equals(folder)) {
             tellPlayer(host, ChatColor.RED + "[RoN] Pick a map first.");
@@ -219,12 +265,14 @@ public class MatchQueue implements Listener {
         }
         lobby.selectedMode = mode.name();
         lobby.selectedModePlayers = mode.players();
+        // FFA starts unlocked (host may toggle on); all other modes stay locked.
+        lobby.allianceLock = mode.name().toLowerCase().startsWith("ffa") ? Boolean.FALSE : Boolean.TRUE;
         publishState();
     }
 
     /** Toggle alliance locking — only meaningful for FFA (other modes are always locked). */
     public void toggleHostAllianceLock(UUID host) {
-        PrivateLobby lobby = lobbyOf(host);
+        CustomLobby lobby = lobbyOf(host);
         if (lobby == null || !lobby.host.equals(host)) return;
         if (lobby.selectedMode == null || !lobby.selectedMode.toLowerCase().startsWith("ffa")) return;
         lobby.allianceLock = !lobby.allianceLock;
@@ -232,17 +280,17 @@ public class MatchQueue implements Listener {
     }
 
     public void toggleHostFog(UUID host) {
-        PrivateLobby lobby = lobbyOf(host);
+        CustomLobby lobby = lobbyOf(host);
         if (lobby == null || !lobby.host.equals(host)) return;
         if (lobby.selectedMode == null) return;
         lobby.fogOfWar = !lobby.fogOfWar;
         publishState();
     }
 
-    public void startPrivate(UUID uuid) {
-        PrivateLobby lobby = lobbyOf(uuid);
+    public void startCustom(UUID uuid) {
+        CustomLobby lobby = lobbyOf(uuid);
         if (lobby == null) {
-            tellPlayer(uuid, ChatColor.RED + "[RoN] You're not in a private lobby.");
+            tellPlayer(uuid, ChatColor.RED + "[RoN] You're not in a custom lobby.");
             return;
         }
         if (!lobby.host.equals(uuid)) {
@@ -262,13 +310,13 @@ public class MatchQueue implements Listener {
                     + lobby.selectedModePlayers + " players — the lobby has " + lobby.players.size() + ".");
             return;
         }
-        startPrivateMatchDirect(lobby);
+        startCustomMatchDirect(lobby);
     }
 
-    private PrivateLobby lobbyOf(UUID uuid) {
+    private CustomLobby lobbyOf(UUID uuid) {
         String code = playerLobby.get(uuid);
         if (code == null) return null;
-        return privateLobbies.get(code);
+        return customLobbies.get(code);
     }
 
     // --- Shared ---
@@ -295,12 +343,12 @@ public class MatchQueue implements Listener {
 
         String code = playerLobby.remove(uuid);
         if (code != null) {
-            PrivateLobby lobby = privateLobbies.get(code);
+            CustomLobby lobby = customLobbies.get(code);
             if (lobby != null) {
                 lobby.players.remove(uuid);
                 broadcastToLobby(lobby, name + " left the lobby. (" + lobby.players.size() + " players)");
 
-                if (pendingPlayers != null && pendingPrivateMatch) pendingPlayers.remove(uuid);
+                if (pendingPlayers != null && pendingCustomMatch) pendingPlayers.remove(uuid);
                 voteSession.removeVoter(uuid);
 
                 if (lobby.players.isEmpty() || lobby.host.equals(uuid)) {
@@ -389,24 +437,24 @@ public class MatchQueue implements Listener {
             broadcastToPlayers(pendingPlayers, "Server ready! Transferring you now...");
 
             List<String> uuids = pendingPlayers.stream().map(UUID::toString).toList();
-            LobbyMessaging.sendTransfer(uuids, pendingInstance, pendingPrivateMatch);
+            LobbyMessaging.sendTransfer(uuids, pendingInstance, pendingCustomMatch);
             plugin.getLogger().info("Transferred " + uuids.size() + " players to " + pendingInstance +
-                    (pendingPrivateMatch ? " (private)" : ""));
+                    (pendingCustomMatch ? " (custom)" : ""));
 
             for (UUID uuid : pendingPlayers) {
                 publicQueue.remove(uuid);
                 String code = playerLobby.remove(uuid);
                 if (code != null) {
-                    PrivateLobby lobby = privateLobbies.get(code);
+                    CustomLobby lobby = customLobbies.get(code);
                     if (lobby != null) lobby.players.remove(uuid);
                 }
             }
-            privateLobbies.values().removeIf(l -> l.players.isEmpty());
+            customLobbies.values().removeIf(l -> l.players.isEmpty());
         }
 
         pendingPlayers = null;
         pendingInstance = null;
-        pendingPrivateMatch = false;
+        pendingCustomMatch = false;
         pendingMin = 0;
         pendingMapName = null;
         pendingMode = null;
@@ -420,12 +468,12 @@ public class MatchQueue implements Listener {
     // --- Combined map+mode voting ---
 
     public void onMapOptions(List<MapOption> options) {
-        // Host browsing maps for a private lobby — cache the options and open the
+        // Host browsing maps for a custom lobby — cache the options and open the
         // host's map picker instead of starting a public vote.
         if (pendingHostBrowse != null) {
             UUID host = pendingHostBrowse;
             pendingHostBrowse = null;
-            PrivateLobby lobby = lobbyOf(host);
+            CustomLobby lobby = lobbyOf(host);
             if (lobby != null && lobby.host.equals(host)) {
                 lobby.cachedMapOptions = options;
                 Player p = Bukkit.getPlayer(host);
@@ -468,7 +516,7 @@ public class MatchQueue implements Listener {
         String mapFolder = choice.mapFolder() != null ? choice.mapFolder() : "random";
         String mode = choice.modeName();
         voteSession.clear();
-        // Public matches: alliances locked, fog disabled (host controls only apply to private lobbies).
+        // Public matches: alliances locked, fog disabled (host controls only apply to custom lobbies).
         LobbyMessaging.sendFindMatch(size, mapFolder, mode, true, false);
     }
 
@@ -483,13 +531,17 @@ public class MatchQueue implements Listener {
     public int getVoteTotalSeconds() { return voteSeconds; }
     public Map<CombinedOption, Integer> getVoteCounts() { return voteSession.getVoteCounts(); }
 
-    public PrivateLobbyView getPrivateLobbyView(UUID uuid) {
+    public CustomLobbyView getCustomLobbyView(UUID uuid) {
         String code = playerLobby.get(uuid);
         if (code == null) return null;
-        PrivateLobby lobby = privateLobbies.get(code);
+        CustomLobby lobby = customLobbies.get(code);
         if (lobby == null) return null;
-        return new PrivateLobbyView(lobby.code, lobby.host, List.copyOf(lobby.players),
-                lobby.selectedMapFolder, lobby.selectedMapName, lobby.selectedMode,
+        return viewOf(lobby);
+    }
+
+    private static CustomLobbyView viewOf(CustomLobby lobby) {
+        return new CustomLobbyView(lobby.code, lobby.host, List.copyOf(lobby.players),
+                lobby.isPublic, lobby.selectedMapFolder, lobby.selectedMapName, lobby.selectedMode,
                 lobby.selectedModePlayers, lobby.allianceLock, lobby.fogOfWar, lobby.cachedMapOptions);
     }
 
@@ -540,20 +592,20 @@ public class MatchQueue implements Listener {
         }
 
         pendingPlayers = new LinkedHashSet<>(publicQueue);
-        pendingPrivateMatch = false;
+        pendingCustomMatch = false;
         phase = Phase.LOCKED_VOTING;
 
         broadcastToPlayers(pendingPlayers, ChatColor.GOLD + "Room locked! Fetching map options...");
-        LobbyMessaging.sendGetMaps(pendingPlayers.size());
+        LobbyMessaging.sendGetMaps(pendingPlayers.size(), false);
         publishState();
     }
 
     /**
-     * Start a host-configured private match: no voting — the host has already chosen
+     * Start a host-configured custom match: no voting — the host has already chosen
      * the map, mode and optional rules. Locks the room and asks the proxy for the
      * specific map+mode directly.
      */
-    private void startPrivateMatchDirect(PrivateLobby lobby) {
+    private void startCustomMatchDirect(CustomLobby lobby) {
         if (availableInstances <= 0) {
             broadcastToLobby(lobby, ChatColor.RED + "No game servers available right now.");
             return;
@@ -563,15 +615,15 @@ public class MatchQueue implements Listener {
             return;
         }
 
-        // Cancel any public fill — the private lobby is taking over the lock.
+        // Cancel any public fill — the custom lobby is taking over the lock.
         if (phase == Phase.FILLING) {
             cancelFillTimer();
-            broadcastToPlayers(publicQueue, ChatColor.YELLOW + "Public match deferred — a private match is starting.");
+            broadcastToPlayers(publicQueue, ChatColor.YELLOW + "Public match deferred — a custom match is starting.");
             phase = Phase.OPEN;
         }
 
         pendingPlayers = new LinkedHashSet<>(lobby.players);
-        pendingPrivateMatch = true;
+        pendingCustomMatch = true;
         pendingMin = lobby.selectedModePlayers;
         pendingMapName = lobby.selectedMapName;
         pendingMode = lobby.selectedMode;
@@ -591,7 +643,7 @@ public class MatchQueue implements Listener {
         pendingHostBrowse = null;
         pendingInstance = null;
         pendingPlayers = null;
-        pendingPrivateMatch = false;
+        pendingCustomMatch = false;
         pendingMin = 0;
         pendingMapName = null;
         pendingMode = null;
@@ -646,7 +698,7 @@ public class MatchQueue implements Listener {
             broadcastToPlayers(pendingPlayers, ChatColor.RED + "Not enough players — match cancelled.");
             voteSession.clear();
             pendingPlayers = null;
-            pendingPrivateMatch = false;
+            pendingCustomMatch = false;
             phase = Phase.OPEN;
             // Late joiners go back into the public queue and may trigger a new fill.
             publicQueue.addAll(nextQueue);
@@ -657,7 +709,7 @@ public class MatchQueue implements Listener {
         }
     }
 
-    private void disbandLobby(PrivateLobby lobby) {
+    private void disbandLobby(CustomLobby lobby) {
         if (pendingHostBrowse != null && lobby.players.contains(pendingHostBrowse)) {
             pendingHostBrowse = null;
         }
@@ -665,7 +717,7 @@ public class MatchQueue implements Listener {
         for (UUID uuid : lobby.players) {
             playerLobby.remove(uuid);
         }
-        privateLobbies.remove(lobby.code);
+        customLobbies.remove(lobby.code);
     }
 
     private void drainNextQueue() {
@@ -693,7 +745,7 @@ public class MatchQueue implements Listener {
                 sb.append(chars.charAt(ThreadLocalRandom.current().nextInt(chars.length())));
             }
             code = sb.toString();
-        } while (privateLobbies.containsKey(code));
+        } while (customLobbies.containsKey(code));
         return code;
     }
 
@@ -712,8 +764,8 @@ public class MatchQueue implements Listener {
         }
     }
 
-    private static void broadcastToLobby(PrivateLobby lobby, String message) {
-        broadcastToPlayers(lobby.players, "[Private] " + message);
+    private static void broadcastToLobby(CustomLobby lobby, String message) {
+        broadcastToPlayers(lobby.players, "[Custom] " + message);
     }
 
     private static void broadcastToAll(String message) {
@@ -732,7 +784,7 @@ public class MatchQueue implements Listener {
             snap.add("nextQueue", uuidsToNamesArray(nextQueue));
 
             JsonArray lobbies = new JsonArray();
-            for (PrivateLobby lobby : privateLobbies.values()) {
+            for (CustomLobby lobby : customLobbies.values()) {
                 JsonObject l = new JsonObject();
                 l.addProperty("code", lobby.code);
                 Player host = Bukkit.getPlayer(lobby.host);
@@ -740,7 +792,7 @@ public class MatchQueue implements Listener {
                 l.add("playerNames", uuidsToNamesArray(lobby.players));
                 lobbies.add(l);
             }
-            snap.add("privateLobbies", lobbies);
+            snap.add("customLobbies", lobbies);
             LobbyMessaging.sendQueueUpdate(snap);
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to publish queue snapshot: " + e.getMessage());

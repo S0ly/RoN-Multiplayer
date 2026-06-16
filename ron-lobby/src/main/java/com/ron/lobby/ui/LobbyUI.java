@@ -27,8 +27,8 @@ public class LobbyUI {
         player.sendMessage(ChatColor.GOLD + "Commands:");
         player.sendMessage("  /queue — Join the matchmaking queue");
         player.sendMessage("  /leave — Leave the queue");
-        player.sendMessage("  /queue private — Create private lobby");
-        player.sendMessage("  /queue join <code> — Join a private lobby");
+        player.sendMessage("  /queue custom — Create custom lobby");
+        player.sendMessage("  /queue join <code> — Join a custom lobby");
         player.sendMessage("  /matches — View running matches and available servers");
         player.sendMessage("  /spectate <instance> — Watch a match");
         player.sendMessage("  /leaderboard — Top 10 players");

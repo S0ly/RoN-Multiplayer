@@ -3,6 +3,9 @@ show-welcome-message: true
 
 # Public queue match flow timings
 queue:
+  # Allow the automatic public matchmaking queue. Turn off for a custom-lobby-only
+  # server — /queue and the hub Join Queue tile then report it as disabled.
+  public-enabled: true
   # Seconds the queue stays OPEN after minPlayers is reached, so more players can join.
   fill-seconds: 120
   # Seconds for the combined map+mode vote after the room is locked.

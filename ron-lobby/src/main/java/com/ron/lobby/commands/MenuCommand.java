@@ -28,7 +28,7 @@ public class MenuCommand implements CommandExecutor {
                 }
                 MenuService.openVote(player);
             }
-            case "private" -> MenuService.openPrivate(player);
+            case "custom" -> MenuService.openCustom(player);
             case "matches" -> MenuService.openMatches(player);
             case "leaderboard" -> MenuService.openLeaderboard(player);
             case "rank" -> MenuService.openRank(player);

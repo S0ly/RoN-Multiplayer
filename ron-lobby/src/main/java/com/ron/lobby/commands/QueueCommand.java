@@ -20,6 +20,10 @@ public class QueueCommand implements CommandExecutor {
         LobbyUI.refreshScreen(player);
 
         if (args.length == 0) {
+            if (!RonLobby.matchQueue.isPublicQueueEnabled()) {
+                player.sendMessage(ChatColor.RED + "[RoN] Public matchmaking is disabled — use /queue custom instead.");
+                return true;
+            }
             if (RonLobby.matchQueue.isInAnyQueue(player.getUniqueId())) {
                 player.sendMessage(ChatColor.RED + "[RoN] You are already in a queue! Use /queue leave first.");
                 return true;
@@ -29,14 +33,14 @@ public class QueueCommand implements CommandExecutor {
         }
 
         switch (args[0].toLowerCase()) {
-            case "private" -> {
+            case "custom" -> {
                 if (RonLobby.matchQueue.isInAnyQueue(player.getUniqueId())) {
                     player.sendMessage(ChatColor.RED + "[RoN] You are already in a queue! Use /queue leave first.");
                     return true;
                 }
-                String code = RonLobby.matchQueue.createPrivateLobby(player.getUniqueId(), player.getName());
+                String code = RonLobby.matchQueue.createCustomLobby(player.getUniqueId(), player.getName());
                 if (code == null) return true;
-                player.sendMessage(ChatColor.GREEN + "[RoN] Private lobby created! Code: " + ChatColor.WHITE + ChatColor.BOLD + code);
+                player.sendMessage(ChatColor.GREEN + "[RoN] Custom lobby created! Code: " + ChatColor.WHITE + ChatColor.BOLD + code);
                 player.sendMessage(ChatColor.GRAY + "Share this code with friends: /queue join " + code);
             }
             case "join" -> {
@@ -48,21 +52,21 @@ public class QueueCommand implements CommandExecutor {
                     player.sendMessage(ChatColor.RED + "[RoN] You are already in a queue! Use /queue leave first.");
                     return true;
                 }
-                RonLobby.matchQueue.joinPrivateLobby(player.getUniqueId(), player.getName(), args[1].toUpperCase());
+                RonLobby.matchQueue.joinCustomLobby(player.getUniqueId(), player.getName(), args[1].toUpperCase());
             }
             case "leave" -> {
                 RonLobby.matchQueue.leaveQueue(player.getUniqueId(), player.getName());
             }
             case "start" -> {
-                RonLobby.matchQueue.startPrivate(player.getUniqueId());
+                RonLobby.matchQueue.startCustom(player.getUniqueId());
             }
             default -> {
                 player.sendMessage(ChatColor.GOLD + "[RoN] Queue commands:");
                 player.sendMessage("  /queue — Join public queue");
-                player.sendMessage("  /queue private — Create private lobby");
-                player.sendMessage("  /queue join <code> — Join a private lobby");
+                player.sendMessage("  /queue custom — Create custom lobby");
+                player.sendMessage("  /queue join <code> — Join a custom lobby");
                 player.sendMessage("  /queue leave — Leave queue");
-                player.sendMessage("  /queue start — Force start (private lobby host)");
+                player.sendMessage("  /queue start — Force start (custom lobby host)");
             }
         }
 
