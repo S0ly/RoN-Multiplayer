@@ -60,17 +60,19 @@ public final class MenuService {
                 "open-private", null,
                 ChatColor.GRAY + "Create or join a private lobby"));
 
-        if (LobbyMessaging.isRankedEnabled()) {
-            inv.setItem(14, MenuItems.action(Material.GOLD_INGOT,
-                    ChatColor.GOLD + "Leaderboard",
-                    "open-leaderboard", null,
-                    ChatColor.GRAY + "Top 10 players"));
+        boolean ranked = LobbyMessaging.isRankedEnabled();
 
-            inv.setItem(16, MenuItems.playerHead(player.getUniqueId(),
-                    ChatColor.LIGHT_PURPLE + "Your Rank",
-                    "open-rank", null,
-                    List.of(ChatColor.GRAY + "Click to view your stats")));
-        }
+        inv.setItem(14, MenuItems.action(Material.GOLD_INGOT,
+                ChatColor.GOLD + "Leaderboard",
+                "open-leaderboard", null,
+                ranked ? ChatColor.GRAY + "Top 10 players"
+                       : ChatColor.RED + "Ranked is disabled"));
+
+        inv.setItem(16, MenuItems.playerHead(player.getUniqueId(),
+                ChatColor.LIGHT_PURPLE + "Your Rank",
+                "open-rank", null,
+                List.of(ranked ? ChatColor.GRAY + "Click to view your stats"
+                               : ChatColor.RED + "Ranked is disabled")));
 
         fillStatusRow(inv, player);
 
@@ -255,23 +257,38 @@ public final class MenuService {
                     ChatColor.RED + "Pick a map first"));
         }
 
-        // Optional rules only appear once a mode is chosen.
+        // Optional rules are always shown to the host (discoverable), but only
+        // interactive once their prerequisite is met (a mode chosen; FFA for the
+        // alliance lock). Order: map → mode → rules → start.
+        boolean fog = lobby.fogOfWar();
         if (hasMode) {
-            boolean fog = lobby.fogOfWar();
             inv.setItem(31, MenuItems.action(fog ? Material.SCULK_SENSOR : Material.GLOWSTONE_DUST,
                     (fog ? ChatColor.GREEN : ChatColor.GRAY) + "Fog of War: " + (fog ? "ON" : "OFF"),
                     "private-toggle-fog", null,
                     ChatColor.GRAY + "Optional rule — default OFF",
                     ChatColor.GRAY + "Click to toggle"));
+        } else {
+            inv.setItem(31, MenuItems.action(Material.GRAY_DYE,
+                    ChatColor.GRAY + "Fog of War: OFF",
+                    "noop", null,
+                    ChatColor.GRAY + "Optional rule — default OFF",
+                    ChatColor.RED + "Select a mode first"));
+        }
 
-            if (lobby.selectedMode().toLowerCase().startsWith("ffa")) {
-                boolean lock = lobby.allianceLock();
-                inv.setItem(30, MenuItems.action(lock ? Material.SHIELD : Material.IRON_DOOR,
-                        (lock ? ChatColor.GREEN : ChatColor.GRAY) + "Lock Alliances: " + (lock ? "ON" : "OFF"),
-                        "private-toggle-alliance", null,
-                        ChatColor.GRAY + "FFA only — default ON",
-                        ChatColor.GRAY + "Click to toggle"));
-            }
+        boolean ffa = hasMode && lobby.selectedMode().toLowerCase().startsWith("ffa");
+        if (ffa) {
+            boolean lock = lobby.allianceLock();
+            inv.setItem(30, MenuItems.action(lock ? Material.SHIELD : Material.IRON_DOOR,
+                    (lock ? ChatColor.GREEN : ChatColor.GRAY) + "Lock Alliances: " + (lock ? "ON" : "OFF"),
+                    "private-toggle-alliance", null,
+                    ChatColor.GRAY + "FFA only — default ON",
+                    ChatColor.GRAY + "Click to toggle"));
+        } else {
+            inv.setItem(30, MenuItems.action(Material.GRAY_DYE,
+                    ChatColor.GRAY + "Lock Alliances: ON",
+                    "noop", null,
+                    ChatColor.GRAY + "FFA only — locked in team/coop",
+                    ChatColor.RED + (hasMode ? "Always locked for this mode" : "Select an FFA mode to change")));
         }
 
         boolean countOk = hasMode && lobby.members().size() == lobby.selectedModePlayers();
