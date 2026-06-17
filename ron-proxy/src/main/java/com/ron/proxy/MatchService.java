@@ -170,11 +170,6 @@ public class MatchService {
         return List.copyOf(activeByInstance.values());
     }
 
-    /** For step 4 (restart recovery): inject a Match loaded from DB. */
-    public void rehydrate(Match match) {
-        activeByInstance.put(match.instance(), match);
-    }
-
     private void persist(Match m) {
         if (matchDAO == null) return;
         try {

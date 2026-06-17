@@ -72,22 +72,6 @@ public class MatchDAO {
         }
     }
 
-    public List<Match> findUnfinished() throws SQLException {
-        List<Match> result = new ArrayList<>();
-        try (Connection conn = database.getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                "SELECT * FROM matches WHERE state IN ('QUEUED', 'ASSIGNED', 'STARTING', 'RUNNING', 'FINISHED')");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                result.add(readMatch(rs));
-            }
-        }
-        for (Match m : result) {
-            m.players().addAll(playersFor(m.id()));
-        }
-        return result;
-    }
-
     public List<MatchPlayer> playersFor(String matchId) throws SQLException {
         List<MatchPlayer> result = new ArrayList<>();
         try (Connection conn = database.getConnection();

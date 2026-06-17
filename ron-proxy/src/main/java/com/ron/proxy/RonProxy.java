@@ -91,13 +91,13 @@ public class RonProxy {
         queueMirror = new QueueMirror();
         messageHandler.setQueueMirror(queueMirror);
         instanceTracker.setQueueMirror(queueMirror);
-        rehydrateMatches();
         server.getChannelRegistrar().register(TRANSFER_CHANNEL, MATCH_CHANNEL);
         server.getEventManager().register(this, messageHandler);
         server.getEventManager().register(this, reconnectHandler);
         server.getCommandManager().register("rejoin", new RejoinCommand(
                 server, logger, this, activeMatchTracker, instanceTracker, playerRouter));
         instanceTracker.startPolling();
+        instanceTracker.resetAllInstances();
         logger.info("RoN Proxy initialized");
     }
 
@@ -112,22 +112,6 @@ public class RonProxy {
 
     public RankSyncService getRankSyncService() {
         return rankSyncService;
-    }
-
-    private void rehydrateMatches() {
-        if (matchDAO == null) return;
-        try {
-            var unfinished = matchDAO.findUnfinished();
-            if (unfinished.isEmpty()) return;
-            for (var match : unfinished) {
-                matchService.rehydrate(match);
-                logger.info("Rehydrated match {} on {} (state={})",
-                        match.id(), match.instance(), match.state());
-            }
-            logger.info("Rehydrated {} unfinished matches — reconciliation will run on first poll", unfinished.size());
-        } catch (Exception e) {
-            logger.error("Failed to rehydrate matches from DB", e);
-        }
     }
 
     private void loadConfig() {

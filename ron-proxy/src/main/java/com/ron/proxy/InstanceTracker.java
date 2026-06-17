@@ -360,6 +360,14 @@ public class InstanceTracker {
         resetInstance(instanceName, 1);
     }
 
+    /** On proxy startup, drop every instance back to IDLE — a restart loses all games. */
+    public void resetAllInstances() {
+        for (String name : configs.keySet()) {
+            logger.info("[{}] Scheduling startup reset to IDLE", name);
+            resetInstance(name);
+        }
+    }
+
     /**
      * Stand down a confirmed-but-not-running match (player dropped out during prep).
      * Marks the proxy-side Match as ABANDONED, clears active-match tracking, and
