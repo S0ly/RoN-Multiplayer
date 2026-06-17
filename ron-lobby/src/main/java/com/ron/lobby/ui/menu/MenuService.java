@@ -462,6 +462,7 @@ public final class MenuService {
     }
 
     private static ItemStack buildMapItem(MapOption map, int voteCount) {
+        boolean available = map.instances() > 0;
         List<String> lore = new ArrayList<>();
         List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
         for (ModeOption m : modes) {
@@ -470,10 +471,19 @@ public final class MenuService {
         }
         lore.add("");
         lore.add(ChatColor.GRAY + "Votes: " + ChatColor.WHITE + voteCount);
-        lore.add(modes.size() > 1 ? ChatColor.YELLOW + "Click to pick a mode"
-                                  : ChatColor.GREEN + "Click to vote");
-        ItemStack item = MenuItems.action(Material.FILLED_MAP,
-                voteCountLabel(ChatColor.WHITE + map.name(), voteCount),
+        lore.add(ChatColor.GRAY + "Available on " + ChatColor.WHITE + map.instances()
+                + ChatColor.GRAY + " instance" + (map.instances() == 1 ? "" : "s"));
+        if (!available) {
+            lore.add(ChatColor.RED + "Unavailable — all instances busy");
+        } else {
+            lore.add(modes.size() > 1 ? ChatColor.YELLOW + "Click to pick a mode"
+                                      : ChatColor.GREEN + "Click to vote");
+        }
+        Material icon = available ? Material.FILLED_MAP : Material.GRAY_DYE;
+        String title = available ? ChatColor.WHITE + map.name()
+                                 : ChatColor.GRAY + map.name() + ChatColor.RED + " (Unavailable)";
+        ItemStack item = MenuItems.action(icon,
+                voteCountLabel(title, voteCount),
                 "vote-map", map.folder(), lore);
         return MenuItems.withAmount(item, Math.max(1, voteCount));
     }

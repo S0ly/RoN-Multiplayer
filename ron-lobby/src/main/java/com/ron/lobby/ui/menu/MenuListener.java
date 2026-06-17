@@ -245,6 +245,10 @@ public class MenuListener implements Listener {
             player.sendMessage(ChatColor.RED + "[RoN] That map is no longer available.");
             return;
         }
+        if (map.instances() <= 0) {
+            player.sendMessage(ChatColor.RED + "[RoN] That map is currently unavailable — all its instances are busy.");
+            return;
+        }
         List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
         if (modes.size() > 1) {
             MenuService.openVoteModes(player, mapFolder);

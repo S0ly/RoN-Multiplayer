@@ -223,6 +223,7 @@ public class MessageHandler {
             JsonObject obj = new JsonObject();
             obj.addProperty("folder", m.folder());
             obj.addProperty("name", m.name());
+            obj.addProperty("instances", m.availableInstances());
 
             JsonArray modesArr = new JsonArray();
             for (InstanceTracker.ModeInfo mode : m.compatibleModes()) {

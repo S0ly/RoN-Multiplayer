@@ -124,7 +124,8 @@ public class LobbyMessaging implements PluginMessageListener {
                 options.add(new MatchQueue.MapOption(
                         m.get("folder").getAsString(),
                         m.get("name").getAsString(),
-                        modes
+                        modes,
+                        m.has("instances") ? m.get("instances").getAsInt() : 0
                 ));
             }
         }

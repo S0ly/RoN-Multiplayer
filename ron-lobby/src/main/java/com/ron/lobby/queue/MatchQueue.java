@@ -67,7 +67,7 @@ public class MatchQueue implements Listener {
     private int transferTimeoutTask = -1;
 
     public record ModeOption(String name, int players) {}
-    public record MapOption(String folder, String name, List<ModeOption> modes) {}
+    public record MapOption(String folder, String name, List<ModeOption> modes, int instances) {}
     public record CombinedOption(String mapFolder, String mapName, String modeName, int players) {}
 
     // Server capabilities

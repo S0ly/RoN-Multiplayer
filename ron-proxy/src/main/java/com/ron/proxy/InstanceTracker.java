@@ -17,7 +17,7 @@ public class InstanceTracker {
     public record InstanceConfig(String name, String rconHost, int rconPort, String rconPassword) {}
     public record ModeInfo(String name, int players) {}
     public record MapInfo(String folder, String name, List<ModeInfo> modes) {}
-    public record MapWithModes(String folder, String name, List<ModeInfo> compatibleModes) {}
+    public record MapWithModes(String folder, String name, List<ModeInfo> compatibleModes, int availableInstances) {}
     public record MatchResult(String instanceName, String mapFolder, String mode) {}
 
     public record MatchResultData(List<PlayerResultData> winners, List<PlayerResultData> losers) {}
@@ -518,16 +518,23 @@ public class InstanceTracker {
      * Find compatible maps across all available instances.
      * Returns maps that have at least one mode supporting the given player count.
      */
+    /** Max maps a single instance may contribute to a vote pool, to avoid overloading the menu. */
+    private static final int MAX_MAPS_PER_INSTANCE = 18;
+
     public List<MapWithModes> findCompatibleMaps(int playerCount, int limit, boolean allowFfaCoop) {
-        Map<String, MapWithModes> seen = new LinkedHashMap<>();
+        // Aggregate across all online instances (including busy ones) so a map whose
+        // instances are all in a match still surfaces, marked unavailable.
+        Map<String, MapAgg> seen = new LinkedHashMap<>();
         Map<String, InstanceInfo> snap = Map.copyOf(instances);
 
         for (var entry : snap.entrySet()) {
             InstanceInfo info = entry.getValue();
-            if (!info.state.isAvailableForMatch()) continue;
+            if (info.state == InstanceState.OFFLINE) continue;
+            boolean instanceAvailable = info.state.isAvailableForMatch();
 
+            int taken = 0;
             for (MapInfo map : info.maps) {
-                if (seen.containsKey(map.folder())) continue;
+                if (taken >= MAX_MAPS_PER_INSTANCE) break;
 
                 List<ModeInfo> compatible = new ArrayList<>();
                 for (ModeInfo mode : map.modes()) {
@@ -538,16 +545,49 @@ public class InstanceTracker {
                     }
                     compatible.add(mode);
                 }
+                if (compatible.isEmpty()) continue;
 
-                if (!compatible.isEmpty()) {
-                    seen.put(map.folder(), new MapWithModes(map.folder(), map.name(), compatible));
+                taken++;
+                MapAgg agg = seen.get(map.folder());
+                if (agg == null) {
+                    agg = new MapAgg(map.folder(), map.name(), compatible);
+                    seen.put(map.folder(), agg);
                 }
+                if (instanceAvailable) agg.availableInstances++;
             }
         }
 
-        List<MapWithModes> result = new ArrayList<>(seen.values());
-        Collections.shuffle(result);
+        // Available maps first, so the menu's render cap truncates unavailable ones first.
+        List<MapAgg> available = new ArrayList<>();
+        List<MapAgg> unavailable = new ArrayList<>();
+        for (MapAgg agg : seen.values()) {
+            (agg.availableInstances > 0 ? available : unavailable).add(agg);
+        }
+        Collections.shuffle(available);
+        Collections.shuffle(unavailable);
+
+        List<MapWithModes> result = new ArrayList<>(seen.size());
+        for (MapAgg agg : available) result.add(agg.toMapWithModes());
+        for (MapAgg agg : unavailable) result.add(agg.toMapWithModes());
         return result.size() > limit ? result.subList(0, limit) : result;
+    }
+
+    /** Mutable accumulator that tracks how many available instances host a given map. */
+    private static final class MapAgg {
+        final String folder;
+        final String name;
+        final List<ModeInfo> compatibleModes;
+        int availableInstances = 0;
+
+        MapAgg(String folder, String name, List<ModeInfo> compatibleModes) {
+            this.folder = folder;
+            this.name = name;
+            this.compatibleModes = compatibleModes;
+        }
+
+        MapWithModes toMapWithModes() {
+            return new MapWithModes(folder, name, compatibleModes, availableInstances);
+        }
     }
 
     /**
