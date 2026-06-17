@@ -7,7 +7,7 @@ import com.ron.lobby.queue.MatchQueue;
 import com.ron.lobby.ui.UiSettings;
 import com.ron.lobby.ui.menu.ChatPrompt;
 import com.ron.lobby.ui.menu.MenuListener;
-import com.ron.lobby.ui.menu.MenuService;
+import com.ron.lobby.ui.menu.MenuSupport;
 import com.ron.lobby.world.VoidWorldSetup;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandExecutor;
@@ -33,7 +33,7 @@ public class RonLobby extends JavaPlugin {
         // UI settings — drive chat/menu/HUD toggles
         UiSettings uiSettings = UiSettings.load(getConfig());
         MatchQueue.setUiSettings(uiSettings);
-        MenuService.setSettings(uiSettings);
+        MenuSupport.setSettings(uiSettings);
 
         matchQueue = new MatchQueue(this);
         matchQueue.configureTimings(

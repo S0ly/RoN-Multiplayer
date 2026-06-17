@@ -63,7 +63,7 @@ public class LobbyMessaging implements PluginMessageListener {
                         );
                         // Status row in any open Hub now has fresh data.
                         Bukkit.getScheduler().runTask(RonLobby.INSTANCE,
-                                com.ron.lobby.ui.menu.MenuService::refreshLobbyMenus);
+                                com.ron.lobby.ui.menu.MenuSupport::refreshLobbyMenus);
                         TimedCallback infoCb = pendingServerInfoCallback.getAndSet(null);
                         if (infoCb != null) {
                             Bukkit.getScheduler().runTask(RonLobby.INSTANCE, () -> infoCb.callback().accept(json));

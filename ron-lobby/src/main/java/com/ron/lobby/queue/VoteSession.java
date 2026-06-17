@@ -1,7 +1,7 @@
 package com.ron.lobby.queue;
 
 import com.ron.lobby.RonLobby;
-import com.ron.lobby.ui.menu.MenuService;
+import com.ron.lobby.ui.menu.VoteMenu;
 import com.ron.lobby.ui.menu.SoundEffects;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -133,7 +133,7 @@ class VoteSession {
         Player player = Bukkit.getPlayer(uuid);
         String name = player != null ? player.getName() : "?";
         broadcast(participants, name + " voted.");
-        MenuService.refreshVoteMenus();
+        VoteMenu.refreshVoteMenus();
         SoundEffects.voteCast(player);
 
         if (votes.size() >= participants.size() && secondsRemaining > finalCountdownSeconds) {
@@ -204,11 +204,11 @@ class VoteSession {
             Bukkit.getScheduler().cancelTask(task);
             task = -1;
         }
-        MenuService.clearVoteOverlays();
+        VoteMenu.clearVoteOverlays();
     }
 
     void removeVoter(UUID uuid) {
-        if (votes.remove(uuid) != null) MenuService.refreshVoteMenus();
+        if (votes.remove(uuid) != null) VoteMenu.refreshVoteMenus();
     }
 
     private void tally(Set<UUID> voters, Consumer<CombinedOption> onWinner) {

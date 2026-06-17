@@ -19,8 +19,8 @@ class CustomLobby {
     String selectedMapName;
     String selectedMode;
     int selectedModePlayers;
-    Boolean allianceLock = Boolean.TRUE; // locked by default, host may unlock for FFA
-    Boolean fogOfWar = Boolean.FALSE;    // disabled by default, host may enable
+    boolean allianceLock = true; // locked by default, host may unlock for FFA
+    boolean fogOfWar = false;    // disabled by default, host may enable
     // Maps + compatible modes fetched for the current lobby size (host browsing).
     List<MatchQueue.MapOption> cachedMapOptions = List.of();
 
@@ -34,7 +34,7 @@ class CustomLobby {
         selectedMapName = null;
         selectedMode = null;
         selectedModePlayers = 0;
-        allianceLock = Boolean.TRUE;
-        fogOfWar = Boolean.FALSE;
+        allianceLock = true;
+        fogOfWar = false;
     }
 }

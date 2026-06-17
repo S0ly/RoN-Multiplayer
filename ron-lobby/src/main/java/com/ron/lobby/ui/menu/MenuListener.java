@@ -84,7 +84,7 @@ public class MenuListener implements Listener {
         String payload = MenuItems.readPayload(item);
         Player player = event.getPlayer();
         if (action.equals("open-hub")) {
-            MenuService.openHub(player);
+            HubMenu.openHub(player);
             return;
         }
         dispatch(player, null, action, payload);
@@ -124,36 +124,36 @@ public class MenuListener implements Listener {
                 }
                 // Refresh hub so the tile updates and the player sees confirmation.
                 Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                        () -> MenuService.openHub(player), 1L);
+                        () -> HubMenu.openHub(player), 1L);
             }
             case "back" -> {
                 MenuId id = holder != null ? holder.menuId() : null;
                 if (id == MenuId.VOTE_MODES) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openVote(player), 1L);
+                            () -> VoteMenu.openVote(player), 1L);
                 } else if (id == MenuId.CUSTOM_MAP_SELECT) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openCustom(player), 1L);
+                            () -> CustomLobbyMenu.openCustom(player), 1L);
                 } else if (id == MenuId.CUSTOM_MODE_SELECT) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openHostMapSelect(player), 1L);
+                            () -> CustomLobbyMenu.openHostMapSelect(player), 1L);
                 } else {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openHub(player), 1L);
+                            () -> HubMenu.openHub(player), 1L);
                 }
             }
-            case "open-custom" -> MenuService.openCustom(player);
-            case "open-matches" -> MenuService.openMatches(player);
-            case "open-leaderboard" -> MenuService.openLeaderboard(player);
+            case "open-custom" -> CustomLobbyMenu.openCustom(player);
+            case "open-matches" -> StatsMenu.openMatches(player);
+            case "open-leaderboard" -> StatsMenu.openLeaderboard(player);
             case "open-rank" -> {
                 player.closeInventory();
-                MenuService.openRank(player);
+                StatsMenu.openRank(player);
             }
             case "custom-create" -> {
                 String code = q.createCustomLobby(player.getUniqueId(), player.getName());
                 if (code != null) {
                     Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                            () -> MenuService.openCustom(player), 2L);
+                            () -> CustomLobbyMenu.openCustom(player), 2L);
                 }
             }
             case "custom-join" -> ChatPrompt.prompt(player, "Type the lobby code:",
@@ -163,7 +163,7 @@ public class MenuListener implements Listener {
                         if (q.getCustomLobbyView(player.getUniqueId()) != null) {
                             player.sendMessage(ChatColor.GREEN + "[RoN] Joined lobby " + upper + ".");
                             Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                                    () -> MenuService.openCustom(player), 2L);
+                                    () -> CustomLobbyMenu.openCustom(player), 2L);
                         }
                         // Invalid-code path is already handled in joinCustomLobby
                         // via tellPlayer "Invalid lobby code".
@@ -185,13 +185,13 @@ public class MenuListener implements Listener {
                 if (v == null || v.selectedMapFolder() == null) {
                     player.sendMessage(ChatColor.RED + "[RoN] Pick a map first.");
                 } else {
-                    MenuService.openHostModeSelect(player, v.selectedMapFolder());
+                    CustomLobbyMenu.openHostModeSelect(player, v.selectedMapFolder());
                 }
             }
             case "custom-pick-map" -> {
                 if (payload != null) {
                     q.selectHostMap(player.getUniqueId(), payload);
-                    MenuService.openHostModeSelect(player, payload);
+                    CustomLobbyMenu.openHostModeSelect(player, payload);
                 }
             }
             case "custom-pick-mode" -> {
@@ -201,7 +201,7 @@ public class MenuListener implements Listener {
                         q.selectHostMode(player.getUniqueId(),
                                 payload.substring(0, slash), payload.substring(slash + 1));
                         Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                                () -> MenuService.openCustom(player), 1L);
+                                () -> CustomLobbyMenu.openCustom(player), 1L);
                     }
                 }
             }
@@ -213,7 +213,7 @@ public class MenuListener implements Listener {
                     q.joinPublicLobby(player.getUniqueId(), player.getName(), payload);
                     if (q.getCustomLobbyView(player.getUniqueId()) != null) {
                         Bukkit.getScheduler().runTaskLater(RonLobby.INSTANCE,
-                                () -> MenuService.openCustom(player), 2L);
+                                () -> CustomLobbyMenu.openCustom(player), 2L);
                     }
                 }
             }
@@ -251,7 +251,7 @@ public class MenuListener implements Listener {
         }
         List<ModeOption> modes = map.modes() != null ? map.modes() : List.of();
         if (modes.size() > 1) {
-            MenuService.openVoteModes(player, mapFolder);
+            VoteMenu.openVoteModes(player, mapFolder);
             return;
         }
         int choice = opts.indexOf(map) + 1;

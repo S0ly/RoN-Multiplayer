@@ -8,7 +8,7 @@ import com.ron.lobby.queue.MatchQueue;
 import com.ron.lobby.ui.LobbyUI;
 import com.ron.lobby.ui.UiSettings;
 import com.ron.lobby.ui.menu.HotbarItems;
-import com.ron.lobby.ui.menu.MenuService;
+import com.ron.lobby.ui.menu.HubMenu;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -42,7 +42,7 @@ public class VoidWorldSetup implements Listener {
                         showRunningMatches(player);
                     }
                     if (ui.autoOpenHubOnJoin()) {
-                        MenuService.openHub(player);
+                        HubMenu.openHub(player);
                     }
                 });
             }, 20L);
