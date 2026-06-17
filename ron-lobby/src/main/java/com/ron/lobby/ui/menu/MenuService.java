@@ -166,12 +166,12 @@ public final class MenuService {
         Inventory inv = holder.createInventory(45, ChatColor.GOLD + "Custom Lobby");
         fillBorder(inv);
 
-        inv.setItem(11, MenuItems.action(Material.EMERALD,
+        inv.setItem(11, MenuItems.action(Material.ANVIL,
                 ChatColor.GREEN + "Create Lobby",
                 "custom-create", null,
                 ChatColor.GRAY + "Generates a code to share"));
 
-        inv.setItem(15, MenuItems.action(Material.ANVIL,
+        inv.setItem(15, MenuItems.action(Material.CHAIN,
                 ChatColor.AQUA + "Join by Code",
                 "custom-join", null,
                 ChatColor.GRAY + "Type the code in chat"));
