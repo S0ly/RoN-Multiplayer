@@ -19,6 +19,9 @@ public final class CustomLobbyMenu {
 
     private CustomLobbyMenu() {}
 
+    /** Public-lobby head slots, in fill order: bottom interior row first, then the row above. */
+    private static final int[] PUBLIC_LOBBY_SLOTS = {28, 29, 30, 31, 32, 33, 34, 19, 20, 21, 22, 23, 24, 25};
+
     public static void openCustom(Player player) {
         CustomLobbyView lobby = RonLobby.matchQueue.getCustomLobbyView(player.getUniqueId());
         if (lobby == null) {
@@ -44,6 +47,8 @@ public final class CustomLobbyMenu {
                 ChatColor.GRAY + "Type the code in chat"));
 
         // Public lobbies — click a host's head to join directly (no code needed).
+        // Fill the bottom interior row first, then grow upward, like the hub's
+        // instance list.
         List<CustomLobbyView> publics = RonLobby.matchQueue.getPublicLobbies();
         if (publics.isEmpty()) {
             inv.setItem(31, MenuItems.action(Material.GRAY_DYE,
@@ -51,12 +56,11 @@ public final class CustomLobbyMenu {
                     "noop", null,
                     ChatColor.GRAY + "Create one or join by code"));
         } else {
-            int slot = 19;
+            int i = 0;
             for (CustomLobbyView lobby : publics) {
-                if (slot == 26) slot = 28;   // jump over the row border
-                if (slot > 34) break;
-                inv.setItem(slot, buildPublicLobbyHead(lobby));
-                slot++;
+                if (i >= PUBLIC_LOBBY_SLOTS.length) break;
+                inv.setItem(PUBLIC_LOBBY_SLOTS[i], buildPublicLobbyHead(lobby));
+                i++;
             }
         }
 
