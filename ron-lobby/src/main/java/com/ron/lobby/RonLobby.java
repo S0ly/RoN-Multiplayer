@@ -38,9 +38,14 @@ public class RonLobby extends JavaPlugin {
         matchQueue = new MatchQueue(this);
         matchQueue.configureTimings(
             getConfig().getInt("queue.fill-seconds", 120),
-            getConfig().getInt("queue.vote-seconds", 60)
+            getConfig().getInt("queue.vote-seconds", 60),
+            getConfig().getInt("queue.min-players", 2),
+            getConfig().getInt("queue.transfer-timeout-seconds", 120),
+            getConfig().getInt("queue.vote-final-countdown-seconds", 10),
+            getConfig().getInt("queue.vote-reminder-interval-seconds", 15)
         );
         matchQueue.setPublicQueueEnabled(getConfig().getBoolean("queue.public-enabled", true));
+        LobbyMessaging.setCallbackTtlSeconds(getConfig().getInt("messaging.callback-ttl-seconds", 30));
 
         getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.TRANSFER);
         getServer().getMessenger().registerOutgoingPluginChannel(this, Channels.MATCH);

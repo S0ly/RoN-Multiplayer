@@ -38,7 +38,7 @@ public class ReconnectHandler {
         String currentServer = player.getCurrentServer()
                 .map(conn -> conn.getServerInfo().getName())
                 .orElse("");
-        if (!"lobby".equals(currentServer)) return;
+        if (!ProxySettings.lobbyServerName.equals(currentServer)) return;
 
         String activeInstance = activeMatchTracker.getActiveInstance(player.getUniqueId());
         if (activeInstance == null) return;

@@ -34,10 +34,6 @@ public class InstanceTracker {
         MatchResultData matchResult
     ) {}
 
-    public static final int MAX_SPECTATORS_PER_INSTANCE = 4;
-
-    private static final int ACTIVE_POLL_SECONDS = 5;
-    private static final int IDLE_POLL_SECONDS = 30;
     private static final long RCON_LOCK_TIMEOUT_SECONDS = 10;
     // Paper closes its RCON listener while reloading a world during a map swap.
     // Hold PREPARING through this gap instead of declaring the instance offline.
@@ -57,7 +53,7 @@ public class InstanceTracker {
     // Network-wide mode allow-list (names). null = no filter, every mode allowed.
     private volatile Set<String> enabledModes = null;
 
-    // Network-wide ranked switch (proxy config.json). Broadcast to the lobby so it can hide ranked UI.
+    // Network-wide ranked switch (proxy config.yml). Broadcast to the lobby so it can hide ranked UI.
     private volatile boolean rankedEnabled = true;
 
     private MessageHandler messageHandler;
@@ -94,9 +90,10 @@ public class InstanceTracker {
     }
 
     public void startPolling() {
-        poller.scheduleAtFixedRate(this::pollAll, ACTIVE_POLL_SECONDS, ACTIVE_POLL_SECONDS, TimeUnit.SECONDS);
+        int activePoll = ProxySettings.activePollSeconds;
+        poller.scheduleAtFixedRate(this::pollAll, activePoll, activePoll, TimeUnit.SECONDS);
         logger.info("Started polling {} instances ({}s active, {}s idle)",
-            configs.size(), ACTIVE_POLL_SECONDS, IDLE_POLL_SECONDS);
+            configs.size(), activePoll, ProxySettings.idlePollSeconds);
     }
 
     public void shutdown() {
@@ -119,7 +116,7 @@ public class InstanceTracker {
             InstanceInfo current = instances.get(name);
             if (current != null && isLowActivity(current.state)) {
                 long lastPoll = lastPollTime.getOrDefault(name, 0L);
-                if (now - lastPoll < IDLE_POLL_SECONDS * 1000L) continue;
+                if (now - lastPoll < ProxySettings.idlePollSeconds * 1000L) continue;
             }
 
             lastPollTime.put(name, now);
@@ -350,7 +347,7 @@ public class InstanceTracker {
         // Give players a few seconds on the scoreboard before pulling them back.
         poller.schedule(() -> {
             if (playerRouter != null) {
-                playerRouter.transferAllFromServer(instanceName, "lobby");
+                playerRouter.transferAllFromServer(instanceName, ProxySettings.lobbyServerName);
             }
             if (activeMatchTracker != null) {
                 activeMatchTracker.clearMatch(instanceName);
@@ -677,7 +674,7 @@ public class InstanceTracker {
             inst.addProperty("map", i.currentMap);
             inst.addProperty("mapCount", i.maps.size());
             inst.addProperty("spectatorCount", i.spectatorCount);
-            inst.addProperty("maxSpectators", MAX_SPECTATORS_PER_INSTANCE);
+            inst.addProperty("maxSpectators", ProxySettings.maxSpectatorsPerInstance);
             instancesObj.add(entry.getKey(), inst);
 
             if (i.state == InstanceState.RUNNING) {

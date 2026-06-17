@@ -1,0 +1,70 @@
+# RoN Proxy configuration.
+# Velocity loads this from plugins/ron-proxy/config.yml on startup.
+# A change here requires a proxy restart to take effect.
+
+# SQLite database for player stats and match history (path is relative to this
+# plugin's data directory).
+database:
+  path: ron.db
+
+# Game-server instances the proxy drives over RCON. Add one block per instance —
+# the key (instance01, instance02, ...) is the instance name used everywhere else.
+# IMPORTANT: change every rconPassword before exposing this proxy publicly.
+instances:
+  instance01:
+    rconHost: 127.0.0.1
+    rconPort: 25575
+    rconPassword: changeme
+  instance02:
+    rconHost: 127.0.0.1
+    rconPort: 25576
+    rconPassword: changeme
+
+# Network-wide ranked switch. When false, every match is unranked and the lobby
+# hides its ranked UI.
+ranked:
+  enabled: true
+
+# Cross-server rank synchronization — push player ratings to trusted peer proxies.
+# Disabled by default. listenToken and per-peer tokens are shared secrets; change
+# them before enabling.
+rankSync:
+  enabled: false
+  listenPort: 25580
+  listenToken: change-me-share-with-trusted-peers
+  syncIntervalMinutes: 10
+  peers: []
+  # peers example:
+  #   - name: friend-server
+  #     url: http://example.com:25580/sync/players
+  #     token: their-listen-token
+
+# Network-wide game-mode switchboard. OMIT this block entirely to allow every
+# supported mode (the default). To restrict, list only the modes you want enabled —
+# any mode not listed (or set to false) is disabled network-wide. The full list of
+# supported mode names is printed to the proxy log on startup.
+#   gameModes:
+#     1v1: true
+#     2v2: true
+#     ffa_4: true
+
+# Routing and capacity.
+network:
+  # Velocity server name players are returned to after a match. Must match a server
+  # defined in velocity.toml.
+  lobby-server-name: lobby
+  # Spectator slots advertised per instance.
+  max-spectators-per-instance: 4
+
+# Timeouts and intervals. Defaults are sensible — tune only if you know you need to.
+timings:
+  # How often the proxy polls a busy instance over RCON.
+  active-poll-seconds: 5
+  # How often it polls an idle instance.
+  idle-poll-seconds: 30
+  # RCON socket connect timeout (milliseconds).
+  rcon-connect-ms: 3000
+  # RCON command/read timeout (milliseconds).
+  rcon-socket-ms: 5000
+  # Delay between sequential player transfers, to avoid a thundering herd (milliseconds).
+  transfer-stagger-ms: 1000

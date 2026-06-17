@@ -24,8 +24,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class MessageHandler {
 
-    /** Stagger between successive player transfers, so an instance isn't hit by a thundering herd. */
-    private static final long PLAYER_TRANSFER_STAGGER_MS = 1000L;
     /** Extra grace beyond the staggered transfers before force-clearing the transfer lock. */
     private static final long TRANSFER_FALLBACK_GRACE_MS = 30_000L;
 
@@ -131,7 +129,7 @@ public class MessageHandler {
 
                 int i = 0;
                 for (UUID uuid : playerUuids) {
-                    long delayMs = i * PLAYER_TRANSFER_STAGGER_MS;
+                    long delayMs = i * ProxySettings.transferStaggerMs;
                     if (delayMs == 0) {
                         playerRouter.transferPlayer(uuid, target);
                     } else {
@@ -144,7 +142,7 @@ public class MessageHandler {
 
                 if (!isSpectator) {
                     // Safety fallback: clear transfer lock if not all players landed (handled normally by ServerConnectedEvent)
-                    long fallbackMs = playerUuids.size() * PLAYER_TRANSFER_STAGGER_MS + TRANSFER_FALLBACK_GRACE_MS;
+                    long fallbackMs = playerUuids.size() * ProxySettings.transferStaggerMs + TRANSFER_FALLBACK_GRACE_MS;
                     server.getScheduler().buildTask(plugin, () -> transfersInProgress.remove(target))
                             .delay(fallbackMs, java.util.concurrent.TimeUnit.MILLISECONDS).schedule();
                 }
@@ -327,7 +325,7 @@ public class MessageHandler {
     }
 
     private void sendToLobby(String jsonData) {
-        Optional<RegisteredServer> lobby = server.getServer("lobby");
+        Optional<RegisteredServer> lobby = server.getServer(ProxySettings.lobbyServerName);
         if (lobby.isEmpty()) return;
 
         byte[] payload = jsonData.getBytes(StandardCharsets.UTF_8);

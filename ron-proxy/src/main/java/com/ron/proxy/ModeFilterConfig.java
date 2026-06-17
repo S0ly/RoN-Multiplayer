@@ -8,18 +8,20 @@ import java.util.Set;
 
 /**
  * Network-wide game-mode switchboard, read from the "gameModes" block of
- * config.json:
+ * config.yml:
  * <pre>
- *   "gameModes": { "1v1": true, "2v2": true, "2v2v2": false, ... }
+ *   gameModes:
+ *     1v1: true
+ *     2v2: true
+ *     2v2v2: false
  * </pre>
  *
  * Strict allow-list: a mode is enabled only if it is present and set to
  * {@code true}. Any mode an instance reports that is not listed (or listed
  * {@code false}) is disabled network-wide.
  *
- * If the whole block is absent (a legacy config), {@link #present()} is false;
- * callers treat every mode as enabled and rewrite the file with
- * {@link #defaultStub()} so the operator sees the full switchboard.
+ * If the whole block is absent, {@link #present()} is false and callers treat
+ * every mode as enabled (the supported names are logged at startup).
  */
 public final class ModeFilterConfig {
 

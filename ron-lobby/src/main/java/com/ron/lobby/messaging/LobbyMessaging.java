@@ -25,7 +25,12 @@ public class LobbyMessaging implements PluginMessageListener {
     // Stored server info for /status command
     private static JsonObject lastServerInfo = null;
 
-    private static final long CALLBACK_TTL_MILLIS = 30_000;
+    private static long callbackTtlMillis = 30_000;
+
+    /** Set the async-callback lifetime from config (seconds). Non-positive values are ignored. */
+    public static void setCallbackTtlSeconds(int seconds) {
+        if (seconds > 0) callbackTtlMillis = seconds * 1000L;
+    }
 
     private record TimedCallback(Consumer<JsonObject> callback, long deadline) {}
 
@@ -260,7 +265,7 @@ public class LobbyMessaging implements PluginMessageListener {
     }
 
     private static long deadline() {
-        return System.currentTimeMillis() + CALLBACK_TTL_MILLIS;
+        return System.currentTimeMillis() + callbackTtlMillis;
     }
 
     /**

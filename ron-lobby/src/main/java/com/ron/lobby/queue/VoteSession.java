@@ -27,11 +27,17 @@ import com.ron.lobby.queue.MatchQueue.ModeOption;
 class VoteSession {
 
     /** Under this many seconds, the timer announces every second; it also caps the early wrap-up. */
-    private static final int FINAL_COUNTDOWN_SECONDS = 10;
+    private int finalCountdownSeconds = 10;
     /** Above the final countdown, announce remaining time on this cadence. */
-    private static final int REMINDER_INTERVAL_SECONDS = 15;
+    private int reminderIntervalSeconds = 15;
 
     private final RonLobby plugin;
+
+    /** Override the vote countdown timings from config; non-positive values keep the defaults. */
+    void configure(int finalCountdownSeconds, int reminderIntervalSeconds) {
+        if (finalCountdownSeconds > 0) this.finalCountdownSeconds = finalCountdownSeconds;
+        if (reminderIntervalSeconds > 0) this.reminderIntervalSeconds = reminderIntervalSeconds;
+    }
 
     private List<MapOption> mapOptions = null;
     private final Map<UUID, CombinedOption> votes = new HashMap<>();
@@ -86,8 +92,8 @@ class VoteSession {
             @Override
             public void run() {
                 secondsRemaining--;
-                if (secondsRemaining > 0 && (secondsRemaining <= FINAL_COUNTDOWN_SECONDS
-                        || secondsRemaining % REMINDER_INTERVAL_SECONDS == 0)) {
+                if (secondsRemaining > 0 && (secondsRemaining <= finalCountdownSeconds
+                        || secondsRemaining % reminderIntervalSeconds == 0)) {
                     broadcast(voters, "Vote: " + secondsRemaining + "s remaining...");
                 }
                 if (secondsRemaining <= 0) {
@@ -130,10 +136,10 @@ class VoteSession {
         MenuService.refreshVoteMenus();
         SoundEffects.voteCast(player);
 
-        if (votes.size() >= participants.size() && secondsRemaining > FINAL_COUNTDOWN_SECONDS) {
-            secondsRemaining = FINAL_COUNTDOWN_SECONDS;
+        if (votes.size() >= participants.size() && secondsRemaining > finalCountdownSeconds) {
+            secondsRemaining = finalCountdownSeconds;
             broadcast(participants, ChatColor.YELLOW + "Everyone voted — wrapping up in "
-                    + FINAL_COUNTDOWN_SECONDS + "s.");
+                    + finalCountdownSeconds + "s.");
         }
     }
 

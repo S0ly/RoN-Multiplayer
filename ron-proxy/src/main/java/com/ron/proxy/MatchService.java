@@ -39,7 +39,7 @@ public class MatchService {
     private final Set<String> awaitingReady = ConcurrentHashMap.newKeySet();
     private final Set<String> handledFinished = ConcurrentHashMap.newKeySet();
 
-    /** Network-wide ranked switch (proxy config.json). When false, every match is unranked. */
+    /** Network-wide ranked switch (proxy config.yml). When false, every match is unranked. */
     private volatile boolean rankedEnabled = true;
 
     public MatchService(Logger logger, MatchDAO matchDAO) {

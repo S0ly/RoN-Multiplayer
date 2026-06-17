@@ -17,6 +17,8 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import org.slf4j.Logger;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -129,58 +131,65 @@ public class RonProxy {
     }
 
     private void loadConfig() {
-        Path configFile = dataDirectory.resolve("config.json");
+        Path configFile = dataDirectory.resolve("config.yml");
         if (!Files.exists(configFile)) {
-            createDefaultConfig(configFile);
+            Path legacyJson = dataDirectory.resolve("config.json");
+            if (Files.exists(legacyJson)) {
+                migrateLegacyJson(legacyJson, configFile);
+            } else {
+                createDefaultConfig(configFile);
+            }
         }
 
         try {
             String content = Files.readString(configFile);
-            JsonObject config = GSON.fromJson(content, JsonObject.class);
+            // YAML is a superset of JSON; SnakeYAML parses it to plain Maps/Lists,
+            // which Gson re-wraps as a JsonObject so the existing per-section parsers
+            // keep working unchanged.
+            Object parsed = new Yaml().load(content);
+            JsonObject config = parsed == null ? new JsonObject() : GSON.toJsonTree(parsed).getAsJsonObject();
 
+            ProxySettings.load(config);
             initDatabase(config);
-            initRanked(config, configFile);
+            initRanked(config);
             initRankSync(config);
-            applyModeFilter(config, configFile);
+            applyModeFilter(config);
             registerInstances(config);
         } catch (IOException e) {
             logger.error("Failed to load config", e);
         }
     }
 
+    /** Copy the bundled, commented default config.yml to the data directory on first run. */
     private void createDefaultConfig(Path configFile) {
         try {
             Files.createDirectories(dataDirectory);
-            JsonObject defaultConfig = new JsonObject();
-            JsonObject instances = new JsonObject();
-
-            JsonObject inst1 = new JsonObject();
-            inst1.addProperty("rconHost", "127.0.0.1");
-            inst1.addProperty("rconPort", 25575);
-            inst1.addProperty("rconPassword", "changeme");
-            instances.add("instance01", inst1);
-
-            JsonObject inst2 = new JsonObject();
-            inst2.addProperty("rconHost", "127.0.0.1");
-            inst2.addProperty("rconPort", 25576);
-            inst2.addProperty("rconPassword", "changeme");
-            instances.add("instance02", inst2);
-
-            JsonObject dbConfig = new JsonObject();
-            dbConfig.addProperty("path", "ron.db");
-            defaultConfig.add("database", dbConfig);
-
-            defaultConfig.add("instances", instances);
-            JsonObject rankedConfig = new JsonObject();
-            rankedConfig.addProperty("enabled", true);
-            defaultConfig.add("ranked", rankedConfig);
-            defaultConfig.add("rankSync", RankSyncConfig.defaultStub());
-            defaultConfig.add("gameModes", ModeFilterConfig.defaultStub());
-            Files.writeString(configFile, GSON.toJson(defaultConfig));
+            try (java.io.InputStream in = getClass().getResourceAsStream("/config.yml")) {
+                if (in == null) {
+                    logger.error("Bundled config.yml resource missing — cannot create default config");
+                    return;
+                }
+                Files.copy(in, configFile);
+            }
             logger.info("Created default config at {}", configFile);
-            logger.warn("Default RCON passwords are 'changeme' — edit config.json before exposing this proxy");
+            logger.warn("Default RCON passwords are 'changeme' — edit config.yml before exposing this proxy");
         } catch (IOException e) {
             logger.error("Failed to create default config", e);
+        }
+    }
+
+    /** One-time upgrade: convert a legacy config.json into config.yml, preserving all values. */
+    private void migrateLegacyJson(Path legacyJson, Path configFile) {
+        try {
+            // JSON is valid YAML — load it as a plain object and dump it back in block style.
+            Object data = new Yaml().load(Files.readString(legacyJson));
+            DumperOptions opts = new DumperOptions();
+            opts.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            opts.setPrettyFlow(true);
+            Files.writeString(configFile, new Yaml(opts).dump(data));
+            logger.warn("Migrated legacy config.json to config.yml — review it (comments were not carried over) and delete config.json");
+        } catch (IOException e) {
+            logger.error("Failed to migrate config.json to config.yml", e);
         }
     }
 
@@ -203,22 +212,11 @@ public class RonProxy {
 
     /**
      * Network-wide ranked switch. When disabled, every match is unranked and the lobby
-     * hides ranked UI. Writes a default {@code "ranked": {"enabled": true}} block back to
-     * legacy configs so operators can find and edit it.
+     * hides ranked UI. Absent block defaults to enabled (documented in the shipped config.yml).
      */
-    private void initRanked(JsonObject config, Path configFile) {
+    private void initRanked(JsonObject config) {
         if (config.has("ranked") && config.getAsJsonObject("ranked").has("enabled")) {
             rankedEnabled = config.getAsJsonObject("ranked").get("enabled").getAsBoolean();
-        } else {
-            JsonObject ranked = new JsonObject();
-            ranked.addProperty("enabled", true);
-            config.add("ranked", ranked);
-            try {
-                Files.writeString(configFile, GSON.toJson(config));
-                logger.info("Added default 'ranked' block to config.json (ranked enabled)");
-            } catch (IOException e) {
-                logger.error("Failed to write 'ranked' block to config.json", e);
-            }
         }
         logger.info("Ranked system {} network-wide", rankedEnabled ? "ENABLED" : "DISABLED");
     }
@@ -237,21 +235,15 @@ public class RonProxy {
 
     /**
      * Apply the network-wide mode switchboard. Called before instances register so the
-     * filter is in place before the first poll fetches their maps.
+     * filter is in place before the first poll fetches their maps. An absent block means
+     * "all modes enabled" — the supported names are logged so operators can restrict them.
      */
-    private void applyModeFilter(JsonObject config, Path configFile) {
+    private void applyModeFilter(JsonObject config) {
         ModeFilterConfig modeFilter = ModeFilterConfig.fromJson(config);
         instanceTracker.setEnabledModes(modeFilter.enabledModes());
         if (!modeFilter.present()) {
-            // Legacy config without a gameModes block: keep every mode enabled and
-            // write the full switchboard back so the operator can edit it.
-            config.add("gameModes", ModeFilterConfig.defaultStub());
-            try {
-                Files.writeString(configFile, GSON.toJson(config));
-                logger.info("Added default 'gameModes' switchboard to config.json (all modes enabled)");
-            } catch (IOException e) {
-                logger.error("Failed to write 'gameModes' block to config.json", e);
-            }
+            logger.info("No 'gameModes' filter set — all modes enabled. Supported modes: {}",
+                    com.ron.common.modes.ModeCatalog.namesHint());
         } else {
             logger.info("Mode switchboard: {} modes enabled network-wide", modeFilter.enabledModes().size());
         }

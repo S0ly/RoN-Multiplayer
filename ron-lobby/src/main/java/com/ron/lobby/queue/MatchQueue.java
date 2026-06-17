@@ -24,8 +24,8 @@ public class MatchQueue implements Listener {
 
     private static final int DEFAULT_FILL_SECONDS = 120;
     private static final int DEFAULT_VOTE_SECONDS = 60;
-    /** Re-queue players if the assigned instance never reports ready (2 minutes, in ticks). */
-    private static final long TRANSFER_TIMEOUT_TICKS = 2400L;
+    /** Re-queue players if the assigned instance never reports ready (default 2 minutes, in ticks). */
+    private long transferTimeoutTicks = 2400L;
 
     private final RonLobby plugin;
     private final VoteSession voteSession;
@@ -84,9 +84,14 @@ public class MatchQueue implements Listener {
         this.voteSession = new VoteSession(plugin);
     }
 
-    public void configureTimings(int fillSeconds, int voteSeconds) {
+    public void configureTimings(int fillSeconds, int voteSeconds, int minPlayers,
+                                 int transferTimeoutSeconds, int voteFinalCountdownSeconds,
+                                 int voteReminderIntervalSeconds) {
         if (fillSeconds > 0) this.fillSeconds = fillSeconds;
         if (voteSeconds > 0) this.voteSeconds = voteSeconds;
+        if (minPlayers > 0) this.minPlayers = minPlayers;
+        if (transferTimeoutSeconds > 0) this.transferTimeoutTicks = transferTimeoutSeconds * 20L;
+        voteSession.configure(voteFinalCountdownSeconds, voteReminderIntervalSeconds);
     }
 
     public void setPublicQueueEnabled(boolean enabled) { this.publicQueueEnabled = enabled; }
@@ -410,7 +415,7 @@ public class MatchQueue implements Listener {
                 }
                 cancelPendingMatch();
             }
-        }, TRANSFER_TIMEOUT_TICKS).getTaskId();
+        }, transferTimeoutTicks).getTaskId();
     }
 
     public void onNoMatchFound() {

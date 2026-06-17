@@ -445,19 +445,18 @@ public final class MenuService {
         RonMenuHolder holder = new RonMenuHolder(RonMenuHolder.MenuId.VOTE);
         Inventory inv = holder.createInventory(54, ChatColor.GOLD + "Vote for a Map");
         for (int i = 0; i < 9; i++) inv.setItem(i, MenuItems.border());
-        for (int i = 45; i < 54; i++) inv.setItem(i, MenuItems.border());
+        for (int i = 45; i < 53; i++) inv.setItem(i, MenuItems.border());
 
         Map<MatchQueue.CombinedOption, Integer> counts = RonLobby.matchQueue.getVoteCounts();
 
-        int slot = 10;
+        int slot = 9;
         for (MapOption map : options) {
-            if (slot >= 43) break;            // reserve slot 43 for Random
-            if (slot % 9 == 8) slot += 2;     // skip side border, jump into next row
+            if (slot > 44) break;             // 36 map slots (rows 2-5)
             inv.setItem(slot, buildMapItem(map, voteCountForMap(map.folder(), counts)));
             slot++;
         }
 
-        inv.setItem(43, buildRandomItem(voteCountForMap(null, counts)));
+        inv.setItem(53, buildRandomItem(voteCountForMap(null, counts)));
 
         player.openInventory(inv);
     }

@@ -10,6 +10,23 @@ queue:
   fill-seconds: 120
   # Seconds for the combined map+mode vote after the room is locked.
   vote-seconds: 60
+  # Players needed before the public queue starts filling. Startup fallback —
+  # the proxy overrides this with the network-wide value once it connects.
+  min-players: 2
+  # Seconds to wait for the assigned instance to report ready before re-queuing
+  # players (the server failed to respond).
+  transfer-timeout-seconds: 120
+  # During the vote, under this many seconds remaining the timer announces every
+  # second (also caps the early wrap-up once everyone has voted).
+  vote-final-countdown-seconds: 10
+  # Above the final countdown, announce remaining vote time on this cadence.
+  vote-reminder-interval-seconds: 15
+
+# Inter-server messaging (queue/rank/leaderboard requests to the proxy)
+messaging:
+  # How long an async request to the proxy (rank, leaderboard, server info) waits
+  # for a reply before it is dropped.
+  callback-ttl-seconds: 30
 
 # UI / UX surfaces — every channel below can be toggled independently so the
 # lobby plays nicely with other plugins on the same server.

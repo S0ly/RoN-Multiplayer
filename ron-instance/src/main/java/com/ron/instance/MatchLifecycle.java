@@ -24,13 +24,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 // never starts.
 public class MatchLifecycle {
 
-    private static final int READYING_SECONDS = 120;
-    private static final int GRACE_PERIOD_SECONDS = 120;
-    private static final int MAX_MATCH_SECONDS = 7200;
-    private static final int READY_TIMEOUT_SECONDS = 300;
-    private static final int EMPTY_MATCH_ABANDON_SECONDS = 60;
-    private static final int WELCOME_DELAY_SECONDS = 5;
-
     enum Phase { IDLE, READYING, RUNNING }
 
     private static volatile Phase phase = Phase.IDLE;
@@ -115,7 +108,7 @@ public class MatchLifecycle {
             runCommand("gamerule coopMode " + isCoop());
             runCommand("gamerule lockAlliances " + effectiveAllianceLock());
             runCommand("rts-fog " + (effectiveFogOfWar() ? "enable" : "disable"));
-            gracePeriods.scheduleAfter(WELCOME_DELAY_SECONDS, MatchLifecycle::showWelcomeIfNeeded);
+            gracePeriods.scheduleAfter(RonInstanceConfig.WELCOME_DELAY_SECONDS.get(), MatchLifecycle::showWelcomeIfNeeded);
         } else if (phase == Phase.READYING) {
             broadcast(ChatFormatting.GRAY + name + " joined.");
             if (serverInstance.getPlayerList().getPlayerCount() >= expectedPlayers) {
@@ -151,8 +144,9 @@ public class MatchLifecycle {
 
         if (currentState == InstanceState.READY) {
             readyTicks++;
-            if (READY_TIMEOUT_SECONDS > 0 && readyTicks >= READY_TIMEOUT_SECONDS * 20) {
-                RonInstance.LOGGER.warn("READY timeout ({}s) — resetting to IDLE", READY_TIMEOUT_SECONDS);
+            int readyTimeout = RonInstanceConfig.READY_TIMEOUT_SECONDS.get();
+            if (readyTimeout > 0 && readyTicks >= readyTimeout * 20) {
+                RonInstance.LOGGER.warn("READY timeout ({}s) — resetting to IDLE", readyTimeout);
                 InstanceStateManager.setState(InstanceState.IDLE);
                 readyTicks = 0;
                 return;
@@ -181,7 +175,7 @@ public class MatchLifecycle {
 
         List<RTSPlayer> rtsPlayers = PlayerServerEvents.rtsPlayers;
         synchronized (rtsPlayers) {
-            if (rtsPlayers.size() >= 2) {
+            if (rtsPlayers.size() >= RonInstanceConfig.MIN_READY_PLAYERS.get()) {
                 phase = Phase.RUNNING;
                 matchTicks = 0;
                 emptyTicks = 0;
@@ -196,7 +190,8 @@ public class MatchLifecycle {
             }
         }
 
-        if (phaseTicks >= READYING_SECONDS * 20) {
+        int readyingSeconds = RonInstanceConfig.READYING_SECONDS.get();
+        if (phaseTicks >= readyingSeconds * 20) {
             RonInstance.LOGGER.warn("MatchLifecycle: Readying timeout — cancelling match");
             broadcast(ChatFormatting.RED + "Match cancelled — players took too long to ready up.");
             InstanceStateManager.setState(InstanceState.FINISHED);
@@ -205,7 +200,7 @@ public class MatchLifecycle {
         }
 
         // Periodic status pings.
-        int secondsLeft = (READYING_SECONDS * 20 - phaseTicks) / 20;
+        int secondsLeft = (readyingSeconds * 20 - phaseTicks) / 20;
         if (phaseTicks % 20 == 0) {
             if (secondsLeft == 60 || secondsLeft == 30 || secondsLeft == 15 || secondsLeft == 10
                     || (secondsLeft <= 5 && secondsLeft > 0)) {
@@ -234,8 +229,9 @@ public class MatchLifecycle {
 
         matchTicks++;
 
-        if (MAX_MATCH_SECONDS > 0 && matchTicks >= MAX_MATCH_SECONDS * 20) {
-            RonInstance.LOGGER.warn("MatchLifecycle: Match duration timeout ({}s) — forced draw", MAX_MATCH_SECONDS);
+        int maxMatchSeconds = RonInstanceConfig.MAX_MATCH_SECONDS.get();
+        if (maxMatchSeconds > 0 && matchTicks >= maxMatchSeconds * 20) {
+            RonInstance.LOGGER.warn("MatchLifecycle: Match duration timeout ({}s) — forced draw", maxMatchSeconds);
             broadcast(ChatFormatting.RED + "Match time limit reached — forced draw");
             victoryHandled = true;
             MatchEndHandler.onDraw(new ArrayList<>(initialParticipants));
@@ -250,8 +246,9 @@ public class MatchLifecycle {
 
             if (playerCount == 0) {
                 emptyTicks += 20;
-                if (emptyTicks >= EMPTY_MATCH_ABANDON_SECONDS * 20) {
-                    RonInstance.LOGGER.warn("MatchLifecycle: Match empty for {}s — forced draw", EMPTY_MATCH_ABANDON_SECONDS);
+                int emptyAbandonSeconds = RonInstanceConfig.EMPTY_ABANDON_SECONDS.get();
+                if (emptyTicks >= emptyAbandonSeconds * 20) {
+                    RonInstance.LOGGER.warn("MatchLifecycle: Match empty for {}s — forced draw", emptyAbandonSeconds);
                     broadcast(ChatFormatting.RED + "All players gone — match abandoned.");
                     victoryHandled = true;
                     MatchEndHandler.onDraw(new ArrayList<>(initialParticipants));
@@ -303,10 +300,11 @@ public class MatchLifecycle {
     // ========================================================================
 
     private static void startGracePeriod(UUID uuid, String name) {
-        broadcast(ChatFormatting.YELLOW + name + " has " + GRACE_PERIOD_SECONDS + "s to reconnect or they forfeit");
-        RonInstance.LOGGER.info("Player {} disconnected, starting {}s grace period", name, GRACE_PERIOD_SECONDS);
+        int gracePeriodSeconds = RonInstanceConfig.GRACE_PERIOD_SECONDS.get();
+        broadcast(ChatFormatting.YELLOW + name + " has " + gracePeriodSeconds + "s to reconnect or they forfeit");
+        RonInstance.LOGGER.info("Player {} disconnected, starting {}s grace period", name, gracePeriodSeconds);
 
-        gracePeriods.start(uuid, GRACE_PERIOD_SECONDS, () -> {
+        gracePeriods.start(uuid, gracePeriodSeconds, () -> {
             RonInstance.LOGGER.info("Player {} grace period expired — forfeited", name);
             if (serverInstance == null) return;
             serverInstance.execute(() -> {
@@ -370,7 +368,7 @@ public class MatchLifecycle {
             if (phase != Phase.READYING) return;
             broadcastMapCredits();
             broadcast(ChatFormatting.GREEN + "Pick a start position + faction, then click Ready!");
-            broadcast(ChatFormatting.YELLOW + "You have " + READYING_SECONDS + "s. Slot = team in this mode.");
+            broadcast(ChatFormatting.YELLOW + "You have " + RonInstanceConfig.READYING_SECONDS.get() + "s. Slot = team in this mode.");
         });
     }
 
