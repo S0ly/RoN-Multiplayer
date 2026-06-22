@@ -41,7 +41,6 @@ public class MatchLifecycle {
     private static volatile boolean privateMatch = false;
 
     private static final GracePeriodTracker gracePeriods = new GracePeriodTracker();
-    private static final SelectionStore selections = new SelectionStore();
 
     // ========================================================================
     // Server start
@@ -82,7 +81,6 @@ public class MatchLifecycle {
 
         if (gracePeriods.cancel(uuid)) {
             RonInstance.LOGGER.info("Player {} reconnected, grace period cancelled", name);
-            selections.restore(uuid, name);
         }
 
         InstanceState state = InstanceStateManager.getState();
@@ -125,8 +123,6 @@ public class MatchLifecycle {
 
         if (!PlayerTracker.isParticipant(uuid) && !hasClaimedSlot(name)) return;
 
-        selections.capture(uuid, name);
-
         if (phase == Phase.RUNNING || phase == Phase.READYING) {
             startGracePeriod(uuid, name);
         }
@@ -168,7 +164,6 @@ public class MatchLifecycle {
 
     private static void tickReadying() {
         phaseTicks++;
-        selections.refreshAll();
         // startPoses gets cleared the moment the mod's countdown ends, so
         // capture participants every tick while we still can.
         trackParticipants();
@@ -497,7 +492,6 @@ public class MatchLifecycle {
         initialParticipants.clear();
 
         gracePeriods.reset();
-        selections.clear();
         rankedOverride = null;
         allianceLockOverride = null;
         fogOfWarOverride = null;

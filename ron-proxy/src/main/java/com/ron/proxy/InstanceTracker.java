@@ -599,6 +599,18 @@ public class InstanceTracker {
     }
 
     /**
+     * Whether an instance may be assigned a new match. Polled state alone is not enough:
+     * a just-prepared instance passes through IDLE/READY before it reaches RUNNING, and the
+     * poll loop keeps overwriting the local PREPARING guard, so an instance with an active
+     * match would otherwise be re-selected and double-booked. Treat any instance MatchService
+     * already owns a match for as taken until it returns to IDLE.
+     */
+    private boolean isSelectable(String name, InstanceInfo info) {
+        if (!info.state.isAvailableForMatch()) return false;
+        return matchService == null || matchService.matchOn(name).isEmpty();
+    }
+
+    /**
      * Find an available instance with a specific map and mode.
      */
     public Optional<MatchResult> findMatchForMap(int playerCount, String mapFolder, String mode) {
@@ -610,7 +622,7 @@ public class InstanceTracker {
         for (var entry : snap.entrySet()) {
             String name = entry.getKey();
             InstanceInfo info = entry.getValue();
-            if (!info.state.isAvailableForMatch()) continue;
+            if (!isSelectable(name, info)) continue;
 
             for (MapInfo map : info.maps) {
                 if (!map.folder().equals(mapFolder)) continue;
@@ -644,7 +656,7 @@ public class InstanceTracker {
         for (var entry : snap.entrySet()) {
             String name = entry.getKey();
             InstanceInfo info = entry.getValue();
-            if (!info.state.isAvailableForMatch()) continue;
+            if (!isSelectable(name, info)) continue;
 
             for (MapInfo map : info.maps) {
                 for (ModeInfo m : map.modes()) {
