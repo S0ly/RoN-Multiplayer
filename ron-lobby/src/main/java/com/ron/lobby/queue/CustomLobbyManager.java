@@ -124,15 +124,26 @@ final class CustomLobbyManager {
             return;
         }
         pendingHostBrowse = host;
-        LobbyMessaging.sendGetMaps(lobby.players.size(), true);
+        LobbyMessaging.sendGetMaps(lobby.players.size(), true, lobby.showCoop);
+    }
+
+    /** Toggle coop/PvE maps in the host picker, then re-fetch the list with the new filter. */
+    void toggleHostShowCoop(UUID host) {
+        CustomLobby lobby = lobbyOf(host);
+        if (lobby == null || !lobby.host.equals(host)) return;
+        lobby.showCoop = !lobby.showCoop;
+        requestMapsForHost(host);
     }
 
     void selectHostMap(UUID host, String folder) {
         CustomLobby lobby = lobbyOf(host);
         if (lobby == null || !lobby.host.equals(host)) return;
-        MapOption map = lobby.cachedMapOptions.stream()
-                .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
-        if (map == null) {
+        // "Random" is a sentinel, not a real folder — the proxy resolves it at match start.
+        MapOption map = MatchQueue.RANDOM_MAP_FOLDER.equals(folder)
+                ? MatchQueue.randomMapOption(lobby.cachedMapOptions)
+                : lobby.cachedMapOptions.stream()
+                        .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
+        if (map == null || map.modes().isEmpty()) {
             LobbyChat.tellPlayer(host, ChatColor.RED + "[RoN] That map is no longer available.");
             return;
         }
@@ -153,8 +164,10 @@ final class CustomLobbyManager {
             LobbyChat.tellPlayer(host, ChatColor.RED + "[RoN] Pick a map first.");
             return;
         }
-        MapOption map = lobby.cachedMapOptions.stream()
-                .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
+        MapOption map = MatchQueue.RANDOM_MAP_FOLDER.equals(folder)
+                ? MatchQueue.randomMapOption(lobby.cachedMapOptions)
+                : lobby.cachedMapOptions.stream()
+                        .filter(o -> o.folder().equals(folder)).findFirst().orElse(null);
         ModeOption mode = map == null ? null : map.modes().stream()
                 .filter(m -> m.name().equals(modeName)).findFirst().orElse(null);
         if (mode == null) {
@@ -219,7 +232,8 @@ final class CustomLobbyManager {
     private static CustomLobbyView viewOf(CustomLobby lobby) {
         return new CustomLobbyView(lobby.code, lobby.host, List.copyOf(lobby.players),
                 lobby.isPublic, lobby.selectedMapFolder, lobby.selectedMapName, lobby.selectedMode,
-                lobby.selectedModePlayers, lobby.allianceLock, lobby.fogOfWar, lobby.cachedMapOptions);
+                lobby.selectedModePlayers, lobby.allianceLock, lobby.fogOfWar, lobby.showCoop,
+                lobby.cachedMapOptions);
     }
 
     boolean isInLobby(UUID uuid) {

@@ -529,7 +529,7 @@ public class InstanceTracker {
     /** Max maps a single instance may contribute to a vote pool, to avoid overloading the menu. */
     private static final int MAX_MAPS_PER_INSTANCE = 18;
 
-    public List<MapWithModes> findCompatibleMaps(int playerCount, int limit, boolean allowFfaCoop) {
+    public List<MapWithModes> findCompatibleMaps(int playerCount, int limit, boolean allowFfa, boolean allowCoop) {
         // Aggregate across all online instances (including busy ones) so a map whose
         // instances are all in a match still surfaces, marked unavailable.
         Map<String, MapAgg> seen = new LinkedHashMap<>();
@@ -547,10 +547,9 @@ public class InstanceTracker {
                 List<ModeInfo> compatible = new ArrayList<>();
                 for (ModeInfo mode : map.modes()) {
                     if (playerCount != mode.players()) continue;
-                    if (!allowFfaCoop) {
-                        String m = mode.name().toLowerCase();
-                        if (m.startsWith("ffa_") || m.startsWith("coop_")) continue;
-                    }
+                    String m = mode.name().toLowerCase();
+                    if (!allowFfa && m.startsWith("ffa_")) continue;
+                    if (!allowCoop && m.startsWith("coop_")) continue;
                     compatible.add(mode);
                 }
                 if (compatible.isEmpty()) continue;

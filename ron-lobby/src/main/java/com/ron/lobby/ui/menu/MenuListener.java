@@ -207,6 +207,10 @@ public class MenuListener implements Listener {
             }
             case "custom-toggle-alliance" -> q.toggleHostAllianceLock(player.getUniqueId());
             case "custom-toggle-fog" -> q.toggleHostFog(player.getUniqueId());
+            case "custom-toggle-coop" -> {
+                player.sendMessage(ChatColor.GRAY + "[RoN] Refreshing maps...");
+                q.toggleHostShowCoop(player.getUniqueId());
+            }
             case "custom-toggle-visibility" -> q.toggleVisibility(player.getUniqueId());
             case "custom-join-public" -> {
                 if (payload != null) {

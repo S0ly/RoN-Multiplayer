@@ -214,7 +214,10 @@ public class MessageHandler {
     private void handleGetMaps(JsonObject json) {
         int playerCount = json.get("playerCount").getAsInt();
         boolean customLobby = json.has("customLobby") && json.get("customLobby").getAsBoolean();
-        List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(playerCount, Integer.MAX_VALUE, customLobby);
+        // Custom lobbies always include FFA; coop/PvE is opt-in via the host's toggle.
+        boolean includeCoop = json.has("includeCoop") && json.get("includeCoop").getAsBoolean();
+        List<InstanceTracker.MapWithModes> maps = instanceTracker.findCompatibleMaps(
+                playerCount, Integer.MAX_VALUE, customLobby, customLobby && includeCoop);
 
         JsonObject response = new JsonObject();
         response.addProperty("type", Type.MAP_OPTIONS);

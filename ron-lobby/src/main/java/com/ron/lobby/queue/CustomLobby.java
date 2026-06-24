@@ -23,6 +23,9 @@ class CustomLobby {
     boolean fogOfWar = false;    // disabled by default, host may enable
     // Maps + compatible modes fetched for the current lobby size (host browsing).
     List<MatchQueue.MapOption> cachedMapOptions = List.of();
+    // Show coop/PvE maps in the host picker. Off by default — kept out of the way
+    // until the host opts in via the toggle.
+    boolean showCoop = false;
 
     CustomLobby(String code, UUID host) {
         this.code = code;

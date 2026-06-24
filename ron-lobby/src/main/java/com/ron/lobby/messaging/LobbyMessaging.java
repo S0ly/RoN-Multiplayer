@@ -186,10 +186,15 @@ public class LobbyMessaging implements PluginMessageListener {
     }
 
     public static void sendGetMaps(int playerCount, boolean customLobby) {
+        sendGetMaps(playerCount, customLobby, false);
+    }
+
+    public static void sendGetMaps(int playerCount, boolean customLobby, boolean includeCoop) {
         JsonObject json = new JsonObject();
         json.addProperty("action", Action.GET_MAPS);
         json.addProperty("playerCount", playerCount);
         json.addProperty("customLobby", customLobby);
+        json.addProperty("includeCoop", includeCoop);
         sendPluginMessage(Channels.MATCH, gson.toJson(json));
     }
 

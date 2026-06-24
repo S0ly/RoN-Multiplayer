@@ -15,4 +15,5 @@ public record CustomLobbyView(
         int selectedModePlayers,
         boolean allianceLock,
         boolean fogOfWar,
+        boolean showCoop,
         List<MatchQueue.MapOption> mapOptions) {}

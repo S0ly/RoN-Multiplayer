@@ -2,6 +2,7 @@ package com.ron.lobby.ui.menu;
 
 import com.ron.lobby.RonLobby;
 import com.ron.lobby.queue.CustomLobbyView;
+import com.ron.lobby.queue.MatchQueue;
 import com.ron.lobby.queue.MatchQueue.MapOption;
 import com.ron.lobby.queue.MatchQueue.ModeOption;
 import org.bukkit.ChatColor;
@@ -243,9 +244,32 @@ public final class CustomLobbyMenu {
             }
         }
 
+        // Let the server pick — selectable just like a real map (mode chosen next).
+        inv.setItem(53, buildRandomMapItem(lobby.selectedMapFolder()));
+
+        // Coop/PvE maps are hidden by default; this re-fetches the list with them included.
+        boolean coop = lobby.showCoop();
+        inv.setItem(45, MenuItems.action(coop ? Material.ZOMBIE_HEAD : Material.GRAY_DYE,
+                (coop ? ChatColor.GREEN : ChatColor.GRAY) + "Coop / PvE maps: " + (coop ? "Shown" : "Hidden"),
+                "custom-toggle-coop", null,
+                ChatColor.GRAY + "Off by default",
+                ChatColor.GRAY + "Click to toggle"));
+
         inv.setItem(49, MenuItems.action(Material.ARROW, ChatColor.WHITE + "← Back",
                 "back", null, ChatColor.GRAY + "Return to the lobby"));
         player.openInventory(inv);
+    }
+
+    private static ItemStack buildRandomMapItem(String selectedFolder) {
+        boolean selected = MatchQueue.RANDOM_MAP_FOLDER.equals(selectedFolder);
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "Let the server pick a map");
+        lore.add("");
+        lore.add(selected ? ChatColor.GREEN + "Selected — click to change modes"
+                          : ChatColor.YELLOW + "Click to choose a mode");
+        return MenuItems.action(Material.NETHER_STAR,
+                (selected ? ChatColor.GREEN : ChatColor.LIGHT_PURPLE) + "Random",
+                "custom-pick-map", MatchQueue.RANDOM_MAP_FOLDER, lore);
     }
 
     private static ItemStack buildHostMapItem(MapOption map, String selectedFolder) {
@@ -265,9 +289,11 @@ public final class CustomLobbyMenu {
             player.sendMessage(ChatColor.RED + "[RoN] Only the host can pick the mode.");
             return;
         }
-        MapOption map = lobby.mapOptions().stream()
-                .filter(o -> o.folder().equals(mapFolder)).findFirst().orElse(null);
-        if (map == null) {
+        MapOption map = MatchQueue.RANDOM_MAP_FOLDER.equals(mapFolder)
+                ? MatchQueue.randomMapOption(lobby.mapOptions())
+                : lobby.mapOptions().stream()
+                        .filter(o -> o.folder().equals(mapFolder)).findFirst().orElse(null);
+        if (map == null || map.modes().isEmpty()) {
             player.sendMessage(ChatColor.RED + "[RoN] That map is no longer available.");
             return;
         }

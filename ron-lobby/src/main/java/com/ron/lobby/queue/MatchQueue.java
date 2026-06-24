@@ -64,6 +64,27 @@ public class MatchQueue implements Listener {
     public record MapOption(String folder, String name, List<ModeOption> modes, int instances) {}
     public record CombinedOption(String mapFolder, String mapName, String modeName, int players) {}
 
+    /** Sentinel map folder meaning "let the server pick a map" — the proxy resolves it in findMatchForMap. */
+    public static final String RANDOM_MAP_FOLDER = "random";
+    public static final String RANDOM_MAP_NAME = "Random";
+
+    /**
+     * Synthetic "Random" map whose modes are the union (by name) of every mode
+     * offered across {@code options}. Lets the host pick a mode for a random map
+     * exactly as they would for a real one.
+     */
+    public static MapOption randomMapOption(List<MapOption> options) {
+        java.util.LinkedHashMap<String, ModeOption> union = new java.util.LinkedHashMap<>();
+        if (options != null) {
+            for (MapOption map : options) {
+                if (map.modes() == null) continue;
+                for (ModeOption mode : map.modes()) union.putIfAbsent(mode.name(), mode);
+            }
+        }
+        return new MapOption(RANDOM_MAP_FOLDER, RANDOM_MAP_NAME,
+                new java.util.ArrayList<>(union.values()), 0);
+    }
+
     // Server capabilities
     private int minPlayers = 2;
     private int availableInstances = 0;
@@ -158,6 +179,7 @@ public class MatchQueue implements Listener {
     public void selectHostMode(UUID host, String folder, String modeName) { customLobbies.selectHostMode(host, folder, modeName); }
     public void toggleHostAllianceLock(UUID host) { customLobbies.toggleHostAllianceLock(host); }
     public void toggleHostFog(UUID host) { customLobbies.toggleHostFog(host); }
+    public void toggleHostShowCoop(UUID host) { customLobbies.toggleHostShowCoop(host); }
     public CustomLobbyView getCustomLobbyView(UUID uuid) { return customLobbies.getCustomLobbyView(uuid); }
 
     public void startCustom(UUID uuid) {
